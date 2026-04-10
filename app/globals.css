@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* ── Tiptap prose styles ──────────────────────────────────────── */
+.tiptap-content p { margin: 0 0 0.5em; }
+.tiptap-content p:last-child { margin-bottom: 0; }
+.tiptap-content strong { font-weight: 600; }
+.tiptap-content em { font-style: italic; }
+.tiptap-content code:not(pre code) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85em;
+  background: #f0f0f0;
+  color: #c7254e;
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+.tiptap-content pre {
+  background: #1e1e2e;
+  color: #cdd6f4;
+  border-radius: 8px;
+  padding: 1em 1.2em;
+  margin: 0.75em 0;
+  overflow-x: auto;
+  font-size: 0.82em;
+  line-height: 1.6;
+}
+.tiptap-content pre code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: none;
+  color: inherit;
+  padding: 0;
+  font-size: inherit;
+}
+.tiptap-content img {
+  max-width: 100%;
+  border-radius: 6px;
+  margin: 0.5em 0;
+  display: block;
+  cursor: zoom-in;
+}
+
+/* highlight.js token colours (Catppuccin-inspired dark) */
+.hljs-keyword, .hljs-selector-tag, .hljs-built_in { color: #cba6f7; }
+.hljs-string, .hljs-attr, .hljs-selector-attr { color: #a6e3a1; }
+.hljs-number, .hljs-literal { color: #fab387; }
+.hljs-comment { color: #6c7086; font-style: italic; }
+.hljs-title, .hljs-class .hljs-title { color: #89b4fa; }
+.hljs-variable, .hljs-template-variable { color: #f38ba8; }
+.hljs-type { color: #89dceb; }
+.hljs-symbol, .hljs-bullet { color: #f9e2af; }
+.hljs-meta { color: #cba6f7; }
+.hljs-addition { color: #a6e3a1; background: rgba(166,227,161,0.1); }
+.hljs-deletion { color: #f38ba8; background: rgba(243,139,168,0.1); }
