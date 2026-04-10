@@ -10,6 +10,7 @@ import {
 } from '@/services/comments.service'
 import type { CommentWithAuthor } from '@/types/comment.types'
 import type { JSONContent } from '@tiptap/core'
+import { sendMentionNotification } from '@/lib/email'
 
 const COMMENT_IMAGES_BUCKET = 'comment-images'
 
@@ -40,14 +41,94 @@ export async function getCommentsAction(
 }
 
 export async function createCommentAction(
-  input: { issue_id: string; contentJson: string }
+  input: { issue_id: string; contentJson: string; projectId: string }
 ): Promise<ServiceResultRaw<CommentRaw>> {
   const user = await getAuthenticatedUser()
   const supabase = createAdminClient()
   const content = JSON.parse(input.contentJson) as JSONContent
+
   const { data, error } = await createCommentService(supabase, user.id, { issue_id: input.issue_id, content })
   if (error || !data) return { data: null, error }
+
+  // Fire mention notifications in the background (don't block the response)
+  void sendMentionEmails({ supabase, content, authorId: user.id, issueId: input.issue_id, projectId: input.projectId })
+
   return { data: { ...data, contentJson: JSON.stringify(data.content) }, error: null }
+}
+
+async function sendMentionEmails({
+  supabase,
+  content,
+  authorId,
+  issueId,
+  projectId,
+}: {
+  supabase: ReturnType<typeof createAdminClient>
+  content: JSONContent
+  authorId: string
+  issueId: string
+  projectId: string
+}) {
+  try {
+    const mentionedIds = extractMentionIds(content)
+    if (mentionedIds.length === 0) return
+
+    // Fetch author name, issue details, and mentioned users' emails in parallel
+    const [{ data: authorProfile }, { data: issue }, { data: mentionedProfiles }] = await Promise.all([
+      supabase.from('profiles').select('full_name').eq('id', authorId).single(),
+      supabase.from('issues').select('key, title').eq('id', issueId).single(),
+      supabase.from('profiles').select('id, email, full_name').in('id', mentionedIds),
+    ])
+
+    if (!issue || !mentionedProfiles) return
+
+    const authorName = authorProfile?.full_name ?? 'Alguien'
+    const commentSnippet = extractTextSnippet(content)
+
+    await Promise.all(
+      mentionedProfiles
+        .filter((p) => p.id !== authorId) // don't notify self-mentions
+        .map((p) =>
+          sendMentionNotification({
+            toEmail: p.email,
+            toName: p.full_name ?? p.email,
+            mentionedByName: authorName,
+            issueKey: issue.key,
+            issueTitle: issue.title,
+            projectId,
+            commentSnippet,
+          })
+        )
+    )
+  } catch (err) {
+    console.error('[sendMentionEmails]', err)
+  }
+}
+
+/** Walks the Tiptap JSON tree and collects all mention node IDs. */
+function extractMentionIds(content: JSONContent): string[] {
+  const ids: string[] = []
+  function walk(node: JSONContent) {
+    if (node.type === 'mention' && typeof node.attrs?.id === 'string') {
+      ids.push(node.attrs.id)
+    }
+    node.content?.forEach(walk)
+  }
+  walk(content)
+  return [...new Set(ids)] // deduplicate
+}
+
+/** Extracts a plain-text snippet (max 200 chars) from Tiptap JSON for the email body. */
+function extractTextSnippet(content: JSONContent, max = 200): string {
+  const parts: string[] = []
+  function walk(node: JSONContent) {
+    if (node.type === 'text') parts.push(node.text ?? '')
+    else if (node.type === 'mention') parts.push(`@${node.attrs?.label ?? ''}`)
+    node.content?.forEach(walk)
+  }
+  walk(content)
+  const text = parts.join('').trim()
+  return text.length > max ? text.slice(0, max) + '…' : text
 }
 
 export async function deleteCommentAction(
@@ -55,7 +136,42 @@ export async function deleteCommentAction(
 ): Promise<{ data: null; error: string | null }> {
   await getAuthenticatedUser()
   const supabase = createAdminClient()
+
+  // Fetch the comment content to extract any embedded image URLs before deleting
+  const { data: row } = await supabase
+    .from('comments')
+    .select('content')
+    .eq('id', commentId)
+    .single()
+
+  if (row?.content) {
+    const imagePaths = extractStoragePaths(row.content as JSONContent)
+    if (imagePaths.length > 0) {
+      await supabase.storage.from(COMMENT_IMAGES_BUCKET).remove(imagePaths)
+    }
+  }
+
   return deleteCommentService(supabase, commentId)
+}
+
+/**
+ * Walks a Tiptap JSONContent tree and returns the storage object paths
+ * (e.g. "userId/1234567890.jpg") for every image node hosted in our bucket.
+ */
+function extractStoragePaths(content: JSONContent): string[] {
+  const paths: string[] = []
+  const MARKER = `/object/public/${COMMENT_IMAGES_BUCKET}/`
+
+  function walk(node: JSONContent) {
+    if (node.type === 'image' && typeof node.attrs?.src === 'string') {
+      const idx = node.attrs.src.indexOf(MARKER)
+      if (idx !== -1) paths.push(node.attrs.src.slice(idx + MARKER.length))
+    }
+    node.content?.forEach(walk)
+  }
+
+  walk(content)
+  return paths
 }
 
 export async function uploadCommentImageAction(

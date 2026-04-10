@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Pencil, Trash2, Calendar, Clock } from 'lucide-react'
+import { formatDate } from '@/lib/utils/dates'
 import { Button } from '@/components/ui/Button'
 import { TypeIcon } from '@/components/issues/TypeIcon'
 import { CommentSection } from '@/components/issues/CommentSection'
@@ -61,9 +62,7 @@ export function IssueDetail({
   const updatedAt = new Date(issue.updated_at).toLocaleDateString('en-US', {
     year: 'numeric', month: 'short', day: 'numeric',
   })
-  const dueDate = issue.due_date
-    ? new Date(issue.due_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-    : null
+  const dueDate = issue.due_date ? formatDate(issue.due_date) : null
 
   async function handleChange(field: string, value: string) {
     const patch: IssueUpdate = { [field]: value || null }
@@ -126,7 +125,7 @@ export function IssueDetail({
         </div>
 
         {/* Comments */}
-        <CommentSection issueId={issue.id} currentUserId={currentUserId} />
+        <CommentSection issueId={issue.id} projectId={projectId} currentUserId={currentUserId} members={members} />
       </div>
 
       {/* Right: metadata */}

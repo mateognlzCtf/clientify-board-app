@@ -9,7 +9,9 @@ export function formatRelativeDate(dateString: string): string {
 }
 
 export function formatDate(dateString: string): string {
-  return format(parseISO(dateString), 'dd MMM yyyy', { locale: es })
+  // Split off any time component so DATE-only strings stay in local time
+  const [y, m, d] = dateString.split('T')[0].split('-').map(Number)
+  return format(new Date(y, m - 1, d), 'dd MMM yyyy', { locale: es })
 }
 
 export function formatDateTime(dateString: string): string {
@@ -17,5 +19,14 @@ export function formatDateTime(dateString: string): string {
 }
 
 export function isOverdue(dueDateString: string): boolean {
-  return isPast(parseISO(dueDateString))
+  // Jira-style: compare calendar dates as strings (no timezone conversion)
+  // A ticket due today is NOT overdue — only strictly past dates are
+  const due = dueDateString.split('T')[0]
+  const now = new Date()
+  const today = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+  ].join('-')
+  return due < today
 }

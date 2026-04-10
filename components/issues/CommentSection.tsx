@@ -2,18 +2,21 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { useEditor, EditorContent } from '@tiptap/react'
+import { useEditor, EditorContent, ReactRenderer } from '@tiptap/react'
 import { generateHTML } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import ImageExtension from '@tiptap/extension-image'
+import Mention from '@tiptap/extension-mention'
 import { createLowlight, common } from 'lowlight'
 import { Trash2, Image as ImageIcon, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useToast } from '@/providers/ToastProvider'
 import type { CommentWithAuthor } from '@/types/comment.types'
 import type { JSONContent } from '@tiptap/core'
+import type { ProjectMemberPreview } from '@/services/projects.service'
+import { MentionList, type MentionListHandle } from '@/components/issues/MentionList'
 import {
   getCommentsAction,
   createCommentAction,
@@ -23,23 +26,82 @@ import {
 
 const lowlight = createLowlight(common)
 
-function buildExtensions(withPlaceholder = false) {
+function buildDisplayExtensions() {
   return [
     StarterKit.configure({ codeBlock: false }),
     CodeBlockLowlight.configure({ lowlight }),
     ImageExtension.configure({ inline: false, allowBase64: true }),
-    ...(withPlaceholder
-      ? [Placeholder.configure({ placeholder: 'Write a comment...' })]
-      : []),
+    Mention.configure({ HTMLAttributes: { class: 'mention-chip' } }),
+  ]
+}
+
+function buildEditorExtensions(membersRef: React.MutableRefObject<ProjectMemberPreview[]>) {
+  return [
+    StarterKit.configure({ codeBlock: false }),
+    CodeBlockLowlight.configure({ lowlight }),
+    ImageExtension.configure({ inline: false, allowBase64: true }),
+    Placeholder.configure({ placeholder: 'Write a comment… use @ to mention someone' }),
+    Mention.configure({
+      HTMLAttributes: { class: 'mention-chip' },
+      suggestion: {
+        items: ({ query }: { query: string }) =>
+          membersRef.current
+            .filter((m) =>
+              (m.profile?.full_name ?? '').toLowerCase().includes(query.toLowerCase())
+            )
+            .slice(0, 8),
+
+        render: () => {
+          let renderer: ReactRenderer<MentionListHandle>
+          let container: HTMLDivElement
+
+          return {
+            onStart: (props) => {
+              renderer = new ReactRenderer(MentionList, { props, editor: props.editor })
+              container = document.createElement('div')
+              container.style.cssText = 'position:fixed;z-index:9999'
+              document.body.appendChild(container)
+              container.appendChild(renderer.element)
+              const rect = props.clientRect?.()
+              if (rect) {
+                container.style.top = `${rect.bottom + 6}px`
+                container.style.left = `${rect.left}px`
+              }
+            },
+            onUpdate: (props) => {
+              renderer.updateProps(props)
+              const rect = props.clientRect?.()
+              if (rect && container) {
+                container.style.top = `${rect.bottom + 6}px`
+                container.style.left = `${rect.left}px`
+              }
+            },
+            onKeyDown: ({ event }) => {
+              if (event.key === 'Escape') {
+                container?.remove()
+                return true
+              }
+              return renderer.ref?.onKeyDown(event) ?? false
+            },
+            onExit: () => {
+              container?.remove()
+              renderer.destroy()
+            },
+          }
+        },
+      },
+    }),
   ]
 }
 
 interface CommentSectionProps {
   issueId: string
+  projectId: string
   currentUserId: string
+  members?: ProjectMemberPreview[]
 }
 
-export function CommentSection({ issueId, currentUserId }: CommentSectionProps) {
+export function CommentSection({ issueId, projectId, currentUserId, members = [] }: CommentSectionProps) {
   const { toast } = useToast()
   const [comments, setComments] = useState<CommentWithAuthor[]>([])
   const [loading, setLoading] = useState(true)
@@ -48,8 +110,12 @@ export function CommentSection({ issueId, currentUserId }: CommentSectionProps) 
   const [editorEmpty, setEditorEmpty] = useState(true)
   const imageInputRef = useRef<HTMLInputElement>(null)
 
+  // Keep a ref so the suggestion closure always reads fresh members
+  const membersRef = useRef(members)
+  useEffect(() => { membersRef.current = members }, [members])
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const extensions = useMemo(() => buildExtensions(true), [])
+  const extensions = useMemo(() => buildEditorExtensions(membersRef), [])
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -109,6 +175,7 @@ export function CommentSection({ issueId, currentUserId }: CommentSectionProps) 
     const content = editor.getJSON()
     const { data, error } = await createCommentAction({
       issue_id: issueId,
+      projectId,
       contentJson: JSON.stringify(content),
     })
 
@@ -252,7 +319,7 @@ function CommentItem({
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const displayExtensions = useMemo(() => buildExtensions(false), [])
+  const displayExtensions = useMemo(() => buildDisplayExtensions(), [])
 
   const html = useMemo(() => {
     try {

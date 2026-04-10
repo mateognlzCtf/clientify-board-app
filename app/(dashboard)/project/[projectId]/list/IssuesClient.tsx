@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import { Plus, Search, Ticket, X, ChevronDown } from 'lucide-react'
+import { Plus, Search, Ticket, X, ChevronDown, MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -14,6 +14,7 @@ import { PriorityIcon, ALL_PRIORITIES, priorityLabel } from '@/components/issues
 import { TypeIcon, ALL_TYPES, typeLabel } from '@/components/issues/TypeIcon'
 import { useToast } from '@/providers/ToastProvider'
 import { cn } from '@/lib/utils/cn'
+import { formatDate, isOverdue } from '@/lib/utils/dates'
 import type { IssueWithDetails, IssueCreate, IssueUpdate, IssueStatus, IssuePriority, IssueType } from '@/types/issue.types'
 import type { ProjectMemberPreview } from '@/services/projects.service'
 import type { Sprint } from '@/types/sprint.types'
@@ -251,38 +252,75 @@ export function IssuesClient({ projectId, currentUserId, issues, sprints, member
 
       {/* Table */}
       {filtered.length > 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+          <table className="w-full text-sm whitespace-nowrap">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50">
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20">Type</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Key</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Title</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[200px]">Summary</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Status</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Priority</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Type</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Comments</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Sprint</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Assignee</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Due date</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Priority</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Created</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Updated</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Reporter</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filtered.map((issue) => (
-                <tr key={issue.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3 font-mono text-xs text-gray-400">{issue.key}</td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => setDetailTarget(issue)}
-                      className="text-left text-gray-900 hover:text-blue-600 font-medium transition-colors line-clamp-1"
-                    >
-                      {issue.title}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3"><StatusBadge status={issue.status} /></td>
-                  <td className="px-4 py-3"><PriorityIcon priority={issue.priority} showLabel /></td>
-                  <td className="px-4 py-3"><TypeIcon type={issue.type} showLabel /></td>
-                  <td className="px-4 py-3"><UserCell person={issue.assignee} fallback="Unassigned" /></td>
-                  <td className="px-4 py-3"><UserCell person={issue.reporter} fallback="Unknown" /></td>
-                </tr>
-              ))}
+              {filtered.map((issue) => {
+                const sprint = sprints.find((s) => s.id === issue.sprint_id)
+                return (
+                  <tr key={issue.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3"><TypeIcon type={issue.type} /></td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-400">{issue.key}</td>
+                    <td className="px-4 py-3 max-w-[260px]">
+                      <button
+                        onClick={() => setDetailTarget(issue)}
+                        className="text-left text-gray-900 hover:text-blue-600 font-medium transition-colors truncate block w-full"
+                      >
+                        {issue.title}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3"><StatusBadge status={issue.status} /></td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => setDetailTarget(issue)}
+                        className="flex items-center gap-1 text-xs text-gray-400 hover:text-blue-600 transition-colors"
+                      >
+                        <MessageSquare size={13} />
+                        <span>Add comment</span>
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-600">
+                      {sprint ? (
+                        <span className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-xs truncate max-w-[120px] block">
+                          {sprint.name}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3"><UserCell person={issue.assignee} fallback="Unassigned" /></td>
+                    <td className="px-4 py-3">
+                      {issue.due_date ? (
+                        <span className={cn('text-xs', isOverdue(issue.due_date) ? 'text-red-500 font-medium' : 'text-gray-600')}>
+                          {formatDate(issue.due_date)}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300 text-xs">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3"><PriorityIcon priority={issue.priority} showLabel /></td>
+                    <td className="px-4 py-3 text-xs text-gray-400">{formatDate(issue.created_at)}</td>
+                    <td className="px-4 py-3 text-xs text-gray-400">{formatDate(issue.updated_at)}</td>
+                    <td className="px-4 py-3"><UserCell person={issue.reporter} fallback="Unknown" /></td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

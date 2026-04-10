@@ -63,6 +63,28 @@ body {
   cursor: zoom-in;
 }
 
+/* ── Tiptap mention chip ──────────────────────────────────────── */
+.mention-chip {
+  display: inline-flex;
+  align-items: center;
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-radius: 4px;
+  padding: 0 5px;
+  font-size: 0.85em;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: default;
+}
+/* placeholder text */
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #9ca3af;
+  pointer-events: none;
+  height: 0;
+}
+
 /* highlight.js token colours (Catppuccin-inspired dark) */
 .hljs-keyword, .hljs-selector-tag, .hljs-built_in { color: #cba6f7; }
 .hljs-string, .hljs-attr, .hljs-selector-attr { color: #a6e3a1; }
