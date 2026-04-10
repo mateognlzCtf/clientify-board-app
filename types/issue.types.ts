@@ -1,4 +1,4 @@
-export type IssueStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done'
+export type IssueStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'canceled' | 'ready_for_production' | 'staging_qa' | 'stopper'
 export type IssuePriority = 'low' | 'medium' | 'high' | 'urgent'
 export type IssueType = 'bug' | 'feature' | 'task' | 'improvement'
 
