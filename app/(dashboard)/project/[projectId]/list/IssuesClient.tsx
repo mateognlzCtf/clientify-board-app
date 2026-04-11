@@ -20,6 +20,7 @@ import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh'
 import type { IssueWithDetails, IssueCreate, IssueUpdate, IssueStatus, IssuePriority, IssueType } from '@/types/issue.types'
 import type { ProjectMemberPreview } from '@/services/projects.service'
 import type { Sprint } from '@/types/sprint.types'
+import type { Epic } from '@/types/epic.types'
 import {
   createIssueAction,
   updateIssueAction,
@@ -39,10 +40,11 @@ interface IssuesClientProps {
   issues: IssueWithDetails[]
   sprints: Sprint[]
   members: ProjectMemberPreview[]
+  epics: Epic[]
   initialFilters: ActiveFilters
 }
 
-export function IssuesClient({ projectId, currentUserId, issues, sprints, members, initialFilters }: IssuesClientProps) {
+export function IssuesClient({ projectId, currentUserId, issues, sprints, members, epics, initialFilters }: IssuesClientProps) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -263,6 +265,7 @@ export function IssuesClient({ projectId, currentUserId, issues, sprints, member
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20">Type</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Key</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[200px]">Summary</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Parent</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Status</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Comments</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Sprint</th>
@@ -288,6 +291,18 @@ export function IssuesClient({ projectId, currentUserId, issues, sprints, member
                       >
                         {issue.title}
                       </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      {issue.epic ? (
+                        <span
+                          className="text-[11px] font-semibold px-2 py-0.5 rounded-full truncate max-w-[130px] block"
+                          style={{ backgroundColor: issue.epic.color + '22', color: issue.epic.color }}
+                        >
+                          {issue.epic.name}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300 text-xs">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3"><StatusBadge status={issue.status} /></td>
                     <td className="px-4 py-3">
@@ -357,6 +372,7 @@ export function IssuesClient({ projectId, currentUserId, issues, sprints, member
             projectId={projectId}
             members={members}
             sprints={sprints}
+            epics={epics}
             onEdit={() => openEdit(detailTarget)}
             onDelete={() => openDelete(detailTarget)}
             onUpdated={(patch) => {
@@ -369,13 +385,13 @@ export function IssuesClient({ projectId, currentUserId, issues, sprints, member
 
       {/* Modal: create */}
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="New ticket" size="xl">
-        <IssueForm mode="create" projectId={projectId} members={members} sprints={sprints} defaultSprintId={sprints.find((s) => s.status === 'active')?.id ?? null} onSubmit={handleCreate} onCancel={() => setCreateOpen(false)} />
+        <IssueForm mode="create" projectId={projectId} members={members} sprints={sprints} epics={epics} defaultSprintId={sprints.find((s) => s.status === 'active')?.id ?? null} onSubmit={handleCreate} onCancel={() => setCreateOpen(false)} />
       </Modal>
 
       {/* Modal: edit */}
       <Modal open={editTarget !== null} onClose={() => setEditTarget(null)} title="Edit ticket" size="xl">
         {editTarget && (
-          <IssueForm mode="edit" issue={editTarget} members={members} sprints={sprints} onSubmit={handleEdit} onCancel={() => setEditTarget(null)} />
+          <IssueForm mode="edit" issue={editTarget} members={members} sprints={sprints} epics={epics} onSubmit={handleEdit} onCancel={() => setEditTarget(null)} />
         )}
       </Modal>
 

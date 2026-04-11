@@ -7,10 +7,12 @@ import { ALL_PRIORITIES, priorityLabel } from '@/components/issues/PriorityIcon'
 import { ALL_TYPES, typeLabel } from '@/components/issues/TypeIcon'
 import { RichTextEditor, parseDescription } from '@/components/issues/RichTextEditor'
 import { uploadCommentImageAction } from '@/app/(dashboard)/project/[projectId]/comment-actions'
+import { createEpicAction } from '@/app/(dashboard)/project/[projectId]/epic-actions'
 import { useToast } from '@/providers/ToastProvider'
 import type { IssueCreate, IssueUpdate, IssueWithDetails, IssueStatus, IssuePriority, IssueType } from '@/types/issue.types'
 import type { ProjectMemberPreview } from '@/services/projects.service'
 import type { Sprint } from '@/types/sprint.types'
+import type { Epic } from '@/types/epic.types'
 import type { JSONContent } from '@tiptap/core'
 
 interface CreateModeProps {
@@ -29,7 +31,9 @@ type IssueFormProps = (CreateModeProps | EditModeProps) & {
   onCancel: () => void
   members: ProjectMemberPreview[]
   sprints?: Sprint[]
+  epics?: Epic[]
   defaultSprintId?: string | null
+  onEpicCreated?: (epic: Epic) => void
 }
 
 export function IssueForm(props: IssueFormProps) {
@@ -45,14 +49,33 @@ export function IssueForm(props: IssueFormProps) {
   const [startDate, setStartDate] = useState(issue?.start_date ?? '')
   const [dueDate, setDueDate] = useState(issue?.due_date ?? '')
   const [sprintId] = useState<string>(issue?.sprint_id ?? props.defaultSprintId ?? '')
+  const [epicId, setEpicId] = useState<string>(issue?.epic_id ?? '')
+  const [epics, setEpics] = useState<Epic[]>(props.epics ?? [])
   const [slackThread, setSlackThread] = useState(issue?.slack_thread ?? '')
   const [loading, setLoading] = useState(false)
   const [titleError, setTitleError] = useState('')
+  const [newEpicName, setNewEpicName] = useState('')
+  const [showNewEpic, setShowNewEpic] = useState(false)
+  const [creatingEpic, setCreatingEpic] = useState(false)
 
   const getDescriptionJson = useRef<(() => JSONContent) | null>(null)
   const handleEditorReady = useCallback((getJson: () => JSONContent) => {
     getDescriptionJson.current = getJson
   }, [])
+
+  async function handleCreateEpic() {
+    if (!newEpicName.trim()) return
+    const projectId = props.mode === 'create' ? (props as CreateModeProps).projectId : (props as EditModeProps).issue.project_id
+    setCreatingEpic(true)
+    const { data: epic, error } = await createEpicAction(projectId, { project_id: projectId, name: newEpicName.trim() })
+    setCreatingEpic(false)
+    if (error || !epic) { toast(error ?? 'Error creating epic', 'error'); return }
+    setEpics((prev) => [...prev, epic].sort((a, b) => a.name.localeCompare(b.name)))
+    setEpicId(epic.id)
+    setNewEpicName('')
+    setShowNewEpic(false)
+    props.onEpicCreated?.(epic)
+  }
 
   async function uploadImage(file: File): Promise<string | null> {
     const compressed = await compressImage(file)
@@ -80,6 +103,7 @@ export function IssueForm(props: IssueFormProps) {
           start_date: startDate || null,
           due_date: dueDate || null,
           sprint_id: sprintId || null,
+          epic_id: epicId || null,
           slack_thread: slackThread || null,
         })
       } else {
@@ -91,6 +115,7 @@ export function IssueForm(props: IssueFormProps) {
           start_date: startDate || null,
           due_date: dueDate || undefined,
           sprint_id: sprintId || null,
+          epic_id: epicId || null,
           slack_thread: slackThread || null,
         })
       }
@@ -196,6 +221,59 @@ export function IssueForm(props: IssueFormProps) {
           </select>
         </div>
       )}
+
+      {/* Epic */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Epic</label>
+        {showNewEpic ? (
+          <div className="flex gap-2">
+            <input
+              autoFocus
+              type="text"
+              value={newEpicName}
+              onChange={(e) => setNewEpicName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreateEpic() } if (e.key === 'Escape') setShowNewEpic(false) }}
+              placeholder="Epic name..."
+              className="flex-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              type="button"
+              onClick={handleCreateEpic}
+              disabled={creatingEpic || !newEpicName.trim()}
+              className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              {creatingEpic ? '...' : 'Create'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowNewEpic(false)}
+              className="px-3 py-1.5 text-xs font-medium bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <select
+              value={epicId}
+              onChange={(e) => setEpicId(e.target.value)}
+              className="flex-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">No epic</option>
+              {epics.map((ep) => (
+                <option key={ep.id} value={ep.id}>{ep.name}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => setShowNewEpic(true)}
+              className="px-3 py-1.5 text-xs font-medium border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 whitespace-nowrap"
+            >
+              + New epic
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Start date / Due date */}
       <div className="grid grid-cols-2 gap-3">

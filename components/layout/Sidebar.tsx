@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import Image from 'next/image'
 import {
   FolderKanban,
   Settings,
@@ -60,8 +61,8 @@ export function Sidebar({ projects: initialProjects }: SidebarProps) {
             collapsed ? 'justify-center' : 'gap-2'
           )}
         >
-          <div className="h-7 w-7 rounded-md bg-blue-600 flex items-center justify-center shrink-0">
-            <span className="text-white text-xs font-bold">C</span>
+          <div className="h-7 w-7 shrink-0">
+            <Image src="/logo.png" alt="Clientify" width={28} height={28} />
           </div>
           {!collapsed && (
             <span className="text-sm font-semibold text-white truncate flex-1">

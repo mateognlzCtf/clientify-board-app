@@ -14,6 +14,7 @@ import { uploadCommentImageAction } from '@/app/(dashboard)/project/[projectId]/
 import type { IssueWithDetails, IssueStatus, IssuePriority, IssueUpdate } from '@/types/issue.types'
 import type { ProjectMemberPreview } from '@/services/projects.service'
 import type { Sprint } from '@/types/sprint.types'
+import type { Epic } from '@/types/epic.types'
 import type { JSONContent } from '@tiptap/core'
 
 interface IssueDetailProps {
@@ -22,6 +23,7 @@ interface IssueDetailProps {
   projectId: string
   members: ProjectMemberPreview[]
   sprints?: Sprint[]
+  epics?: Epic[]
   onEdit: () => void
   onDelete: () => void
   onUpdated: (patch: Partial<IssueUpdate>) => void
@@ -52,6 +54,7 @@ export function IssueDetail({
   projectId,
   members,
   sprints,
+  epics = [],
   onEdit,
   onDelete,
   onUpdated,
@@ -77,6 +80,7 @@ export function IssueDetail({
   const [draftSlack, setDraftSlack] = useState(issue.slack_thread ?? '')
   const [pauseReason, setPauseReason] = useState(issue.pause_reason ?? '')
   const [draftPause, setDraftPause] = useState(issue.pause_reason ?? '')
+  const [epicId, setEpicId] = useState<string>(issue.epic_id ?? '')
 
   // Rich editor ref
   const getDescriptionJson = useRef<(() => JSONContent) | null>(null)
@@ -104,6 +108,7 @@ export function IssueDetail({
     if (field === 'assignee_id') setAssigneeId(value)
     if (field === 'due_date') setDueDateRaw(value)
     if (field === 'start_date') setStartDateRaw(value)
+    if (field === 'epic_id') setEpicId(value)
     const { error } = await updateIssueAction(projectId, issue.id, patch)
     setSaving(null)
     if (error) {
@@ -177,7 +182,36 @@ export function IssueDetail({
       {/* ── LEFT PANEL ── */}
       <div className="flex-1 min-w-0 pr-6 space-y-5 overflow-y-auto">
 
-        {/* Title */}
+        {/* Epic breadcrumb */}
+        {(epicId || epics.length > 0) && (
+          <div className="flex items-center gap-1.5">
+            <div className="relative inline-flex items-center">
+              {epicId ? (
+                <span
+                  className="text-xs font-semibold px-2 py-0.5 rounded-full cursor-pointer"
+                  style={{ backgroundColor: (epics.find(e => e.id === epicId)?.color ?? '#6366f1') + '22', color: epics.find(e => e.id === epicId)?.color ?? '#6366f1' }}
+                >
+                  {epics.find(e => e.id === epicId)?.name ?? 'Epic'}
+                </span>
+              ) : (
+                <span className="text-xs text-gray-400 italic">No epic</span>
+              )}
+              <select
+                value={epicId}
+                disabled={saving === 'epic_id'}
+                onChange={(e) => handleChange('epic_id', e.target.value)}
+                className="absolute inset-0 w-full opacity-0 cursor-pointer disabled:cursor-default"
+              >
+                <option value="">No epic</option>
+                {epics.map((ep) => (
+                  <option key={ep.id} value={ep.id}>{ep.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+      {/* Title */}
         <InlineText
           field="title"
           editing={editingField === 'title'}

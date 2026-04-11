@@ -23,12 +23,14 @@ type RawIssue = {
   due_date: string | null
   start_date: string | null
   sprint_id: string | null
+  epic_id: string | null
   slack_thread: string | null
   pause_reason: string | null
   created_at: string
   updated_at: string
   assignee: { id: string; full_name: string | null; avatar_url: string | null } | null
   reporter: { id: string; full_name: string | null; avatar_url: string | null } | null
+  epic: { id: string; name: string; color: string } | null
 }
 
 export async function getIssues(
@@ -40,7 +42,8 @@ export async function getIssues(
     .select(`
       *,
       assignee:profiles!issues_assignee_id_fkey(id, full_name, avatar_url),
-      reporter:profiles!issues_reporter_id_fkey(id, full_name, avatar_url)
+      reporter:profiles!issues_reporter_id_fkey(id, full_name, avatar_url),
+      epic:epics(id, name, color)
     `)
     .eq('project_id', projectId)
     .order('position', { ascending: true })
@@ -63,6 +66,7 @@ export async function getIssues(
     position: row.position,
     due_date: row.due_date,
     sprint_id: row.sprint_id,
+    epic_id: row.epic_id,
     start_date: row.start_date,
     slack_thread: row.slack_thread,
     pause_reason: row.pause_reason,
@@ -70,6 +74,7 @@ export async function getIssues(
     updated_at: row.updated_at,
     assignee: row.assignee,
     reporter: row.reporter ?? { id: row.reporter_id, full_name: null, avatar_url: null },
+    epic: row.epic,
   }))
 
   return { data: issues, error: null }
@@ -84,7 +89,8 @@ export async function getIssueById(
     .select(`
       *,
       assignee:profiles!issues_assignee_id_fkey(id, full_name, avatar_url),
-      reporter:profiles!issues_reporter_id_fkey(id, full_name, avatar_url)
+      reporter:profiles!issues_reporter_id_fkey(id, full_name, avatar_url),
+      epic:epics(id, name, color)
     `)
     .eq('id', issueId)
     .single()
@@ -106,12 +112,16 @@ export async function getIssueById(
       reporter_id: row.reporter_id,
       position: row.position,
       due_date: row.due_date,
+      start_date: row.start_date,
       sprint_id: row.sprint_id,
+      epic_id: row.epic_id,
       slack_thread: row.slack_thread,
+      pause_reason: row.pause_reason,
       created_at: row.created_at,
       updated_at: row.updated_at,
       assignee: row.assignee,
       reporter: row.reporter ?? { id: row.reporter_id, full_name: null, avatar_url: null },
+      epic: row.epic,
     },
     error: null,
   }
@@ -135,6 +145,7 @@ export async function createIssue(
       reporter_id: userId,
       due_date: data.due_date ?? null,
       ...(data.sprint_id !== undefined && { sprint_id: data.sprint_id }),
+      epic_id: data.epic_id ?? null,
       slack_thread: data.slack_thread ?? null,
     })
     .select()
@@ -165,6 +176,7 @@ export async function updateIssue(
       ...(data.due_date !== undefined && { due_date: data.due_date }),
       ...(data.position !== undefined && { position: data.position }),
       ...(data.sprint_id !== undefined && { sprint_id: data.sprint_id }),
+      ...(data.epic_id !== undefined && { epic_id: data.epic_id }),
       ...(data.start_date !== undefined && { start_date: data.start_date }),
       ...(data.slack_thread !== undefined && { slack_thread: data.slack_thread }),
       ...(data.pause_reason !== undefined && { pause_reason: data.pause_reason }),

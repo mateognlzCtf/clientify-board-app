@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getIssues } from '@/services/issues.service'
 import { getSprints } from '@/services/sprints.service'
 import { getProjectMembers } from '@/services/projects.service'
+import { getEpics } from '@/services/epics.service'
 import { IssuesClient } from './IssuesClient'
 
 interface Props {
@@ -21,10 +22,11 @@ export default async function IssuesListPage({ params, searchParams }: Props) {
 
   const admin = createAdminClient()
 
-  const [{ data: issues }, { data: sprints }, { data: members }] = await Promise.all([
+  const [{ data: issues }, { data: sprints }, { data: members }, { data: epics }] = await Promise.all([
     getIssues(admin, projectId),
     getSprints(admin, projectId),
     getProjectMembers(supabase, projectId),
+    getEpics(admin, projectId),
   ])
 
   // Parse filter params (comma-separated values)
@@ -42,6 +44,7 @@ export default async function IssuesListPage({ params, searchParams }: Props) {
         issues={issues ?? []}
         sprints={sprints ?? []}
         members={members ?? []}
+        epics={epics ?? []}
         initialFilters={{
           statuses: parseParam('status'),
           priorities: parseParam('priority'),

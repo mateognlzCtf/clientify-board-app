@@ -11,23 +11,25 @@ import { CSS } from '@dnd-kit/utilities'
 import {
   Plus, ChevronDown, ChevronRight, Play, CheckSquare,
   Pencil, Trash2, Flag, Calendar, MoreHorizontal, GripVertical,
+  X, Search,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { IssueForm } from '@/components/issues/IssueForm'
 import { IssueDetail } from '@/components/issues/IssueDetail'
-import { StatusBadge } from '@/components/issues/StatusBadge'
-import { PriorityIcon } from '@/components/issues/PriorityIcon'
-import { TypeIcon } from '@/components/issues/TypeIcon'
+import { StatusBadge, ALL_STATUSES, statusLabel } from '@/components/issues/StatusBadge'
+import { PriorityIcon, ALL_PRIORITIES, priorityLabel } from '@/components/issues/PriorityIcon'
+import { TypeIcon, ALL_TYPES, typeLabel } from '@/components/issues/TypeIcon'
 import { useToast } from '@/providers/ToastProvider'
 import { cn } from '@/lib/utils/cn'
 import { formatDate } from '@/lib/utils/dates'
 import { useRefreshOnFocus } from '@/lib/hooks/useRefreshOnFocus'
 import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh'
-import type { IssueWithDetails, IssueCreate, IssueUpdate } from '@/types/issue.types'
+import type { IssueWithDetails, IssueCreate, IssueUpdate, IssueStatus, IssuePriority, IssueType } from '@/types/issue.types'
 import type { Sprint, SprintCreate, SprintUpdate } from '@/types/sprint.types'
 import type { ProjectMemberPreview } from '@/services/projects.service'
+import type { Epic } from '@/types/epic.types'
 import {
   createSprintAction, updateSprintAction, deleteSprintAction,
   startSprintAction, completeSprintAction,
@@ -40,9 +42,10 @@ interface Props {
   issues: IssueWithDetails[]
   sprints: Sprint[]
   members: ProjectMemberPreview[]
+  epics: Epic[]
 }
 
-export function BacklogClient({ projectId, currentUserId, issues, sprints: initialSprints, members }: Props) {
+export function BacklogClient({ projectId, currentUserId, issues, sprints: initialSprints, members, epics: initialEpics }: Props) {
   const router = useRouter()
   const { toast } = useToast()
   useRefreshOnFocus(() => setDetailTarget(null))
@@ -50,11 +53,32 @@ export function BacklogClient({ projectId, currentUserId, issues, sprints: initi
 
   const [sprints, setSprints] = useState<Sprint[]>(initialSprints)
   const [allIssues, setAllIssues] = useState<IssueWithDetails[]>(issues)
+  const [epics, setEpics] = useState<Epic[]>(initialEpics)
 
   // Sync when server re-fetches after router.refresh()
   useEffect(() => { setSprints(initialSprints) }, [initialSprints])
   useEffect(() => { setAllIssues(issues) }, [issues])
   const [draggingIssue, setDraggingIssue] = useState<IssueWithDetails | null>(null)
+
+  // Filters
+  const [filterAssignees, setFilterAssignees] = useState<string[]>([])
+  const [filterTypes, setFilterTypes] = useState<IssueType[]>([])
+  const [filterStatuses, setFilterStatuses] = useState<IssueStatus[]>([])
+  const [filterPriorities, setFilterPriorities] = useState<IssuePriority[]>([])
+  const [filterEpics, setFilterEpics] = useState<string[]>([])
+
+  const hasFilters = filterAssignees.length > 0 || filterTypes.length > 0 || filterStatuses.length > 0 || filterPriorities.length > 0 || filterEpics.length > 0
+
+  const filteredIssues = useMemo(() => {
+    return allIssues.filter((issue) => {
+      if (filterAssignees.length > 0 && !filterAssignees.includes(issue.assignee_id ?? '__unassigned__')) return false
+      if (filterTypes.length > 0 && !filterTypes.includes(issue.type)) return false
+      if (filterStatuses.length > 0 && !filterStatuses.includes(issue.status)) return false
+      if (filterPriorities.length > 0 && !filterPriorities.includes(issue.priority)) return false
+      if (filterEpics.length > 0 && !filterEpics.includes(issue.epic_id ?? '__none__')) return false
+      return true
+    })
+  }, [allIssues, filterAssignees, filterTypes, filterStatuses, filterPriorities, filterEpics])
 
   // Sprint modals
   const [sprintFormOpen, setSprintFormOpen] = useState(false)
@@ -76,13 +100,13 @@ export function BacklogClient({ projectId, currentUserId, issues, sprints: initi
     const map = new Map<string | null, IssueWithDetails[]>()
     map.set(null, [])
     for (const sprint of sprints) map.set(sprint.id, [])
-    for (const issue of allIssues) {
+    for (const issue of filteredIssues) {
       const key = issue.sprint_id ?? null
       if (!map.has(key)) map.set(key, [])
       map.get(key)!.push(issue)
     }
     return map
-  }, [allIssues, sprints])
+  }, [filteredIssues, sprints])
 
   const activeSprint = sprints.find((s) => s.status === 'active') ?? null
   const planningSprints = sprints
@@ -292,6 +316,54 @@ export function BacklogClient({ projectId, currentUserId, issues, sprints: initi
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="px-6 py-5 max-w-5xl mx-auto space-y-4">
 
+        {/* Filter bar */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <FilterDropdown
+            label="Assignee"
+            options={[
+              { value: '__unassigned__', label: 'Unassigned' },
+              ...members.map((m) => ({ value: m.user_id, label: m.profile?.full_name ?? m.user_id, avatarUrl: m.profile?.avatar_url ?? null })),
+            ]}
+            selected={filterAssignees}
+            onChange={setFilterAssignees}
+          />
+          <FilterDropdown
+            label="Type"
+            options={ALL_TYPES.map((t) => ({ value: t, label: typeLabel(t) }))}
+            selected={filterTypes as string[]}
+            onChange={(v) => setFilterTypes(v as IssueType[])}
+          />
+          <FilterDropdown
+            label="Status"
+            options={ALL_STATUSES.map((s) => ({ value: s, label: statusLabel(s) }))}
+            selected={filterStatuses as string[]}
+            onChange={(v) => setFilterStatuses(v as IssueStatus[])}
+          />
+          <FilterDropdown
+            label="Priority"
+            options={ALL_PRIORITIES.map((p) => ({ value: p, label: priorityLabel(p) }))}
+            selected={filterPriorities as string[]}
+            onChange={(v) => setFilterPriorities(v as IssuePriority[])}
+          />
+          <FilterDropdown
+            label="Parent"
+            options={[
+              { value: '__none__', label: 'No parent' },
+              ...epics.map((ep) => ({ value: ep.id, label: ep.name })),
+            ]}
+            selected={filterEpics}
+            onChange={setFilterEpics}
+          />
+          {hasFilters && (
+            <button
+              onClick={() => { setFilterAssignees([]); setFilterTypes([]); setFilterStatuses([]); setFilterPriorities([]); setFilterEpics([]) }}
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-red-500 transition-colors px-2 py-1.5"
+            >
+              <X size={12} /> Clear filters
+            </button>
+          )}
+        </div>
+
         {/* Active sprint */}
         {activeSprint && (
           <SprintSection
@@ -388,9 +460,11 @@ export function BacklogClient({ projectId, currentUserId, issues, sprints: initi
             projectId={projectId}
             members={members}
             sprints={sprints}
+            epics={epics}
             defaultSprintId={createIssueSprintId ?? null}
             onSubmit={handleCreateIssue}
             onCancel={() => setCreateIssueSprintId(undefined)}
+            onEpicCreated={(epic) => setEpics((prev) => [...prev, epic].sort((a, b) => a.name.localeCompare(b.name)))}
           />
         </Modal>
 
@@ -402,6 +476,7 @@ export function BacklogClient({ projectId, currentUserId, issues, sprints: initi
               projectId={projectId}
               members={members}
               sprints={sprints}
+              epics={epics}
               onEdit={() => { setDetailTarget(null); setEditIssueTarget(detailTarget) }}
               onDelete={() => { setDetailTarget(null); setDeleteIssueTarget(detailTarget) }}
               onUpdated={(patch) => {
@@ -414,7 +489,7 @@ export function BacklogClient({ projectId, currentUserId, issues, sprints: initi
 
         <Modal open={editIssueTarget !== null} onClose={() => setEditIssueTarget(null)} title="Edit ticket" size="xl">
           {editIssueTarget && (
-            <IssueForm mode="edit" issue={editIssueTarget} members={members} sprints={sprints} onSubmit={handleEditIssue} onCancel={() => setEditIssueTarget(null)} />
+            <IssueForm mode="edit" issue={editIssueTarget} members={members} sprints={sprints} epics={epics} onSubmit={handleEditIssue} onCancel={() => setEditIssueTarget(null)} />
           )}
         </Modal>
 
@@ -693,8 +768,25 @@ function DraggableIssueRow({
       >
         {issue.title}
       </button>
+      {issue.epic && (
+        <span
+          className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 hidden sm:inline-flex"
+          style={{ backgroundColor: issue.epic.color + '22', color: issue.epic.color }}
+        >
+          {issue.epic.name}
+        </span>
+      )}
 
       <div className="flex items-center gap-2 shrink-0">
+        {issue.due_date && (
+          <span className={cn(
+            'text-[11px] font-medium flex items-center gap-1',
+            issue.due_date < new Date().toISOString().slice(0, 10) ? 'text-red-500' : 'text-gray-400'
+          )}>
+            <Calendar size={11} />
+            {formatDate(issue.due_date)}
+          </span>
+        )}
         <StatusBadge status={issue.status} />
         <PriorityIcon priority={issue.priority} />
         {issue.assignee && (
@@ -762,6 +854,131 @@ function IssueRowGhost({ issue }: { issue: IssueWithDetails }) {
       <span className="flex-1 text-sm text-gray-800 truncate font-medium">{issue.title}</span>
       <StatusBadge status={issue.status} />
       <PriorityIcon priority={issue.priority} />
+    </div>
+  )
+}
+
+// ── FilterDropdown ────────────────────────────────────────────────────────────
+
+interface FilterOption {
+  value: string
+  label: string
+  avatarUrl?: string | null
+}
+
+function FilterDropdown({
+  label, options, selected, onChange,
+}: {
+  label: string
+  options: FilterOption[]
+  selected: string[]
+  onChange: (v: string[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [open])
+
+  const filtered = options.filter((o) => o.label.toLowerCase().includes(search.toLowerCase()))
+
+  function toggle(value: string) {
+    onChange(selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value])
+  }
+
+  const isActive = selected.length > 0
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors',
+          isActive
+            ? 'bg-blue-50 border-blue-300 text-blue-700'
+            : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300 hover:text-gray-900'
+        )}
+      >
+        {label}
+        {isActive && (
+          <span className="bg-blue-600 text-white rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none">
+            {selected.length}
+          </span>
+        )}
+        <ChevronDown size={12} className={cn('transition-transform', open && 'rotate-180')} />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-30 bg-white border border-gray-200 rounded-xl shadow-lg py-1 w-56">
+          {/* Search */}
+          <div className="px-2 pb-1 pt-1">
+            <div className="relative">
+              <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                autoFocus
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={`Search ${label.toLowerCase()}...`}
+                className="w-full pl-6 pr-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          <div className="max-h-52 overflow-y-auto">
+            {filtered.length === 0 && (
+              <p className="px-3 py-2 text-xs text-gray-400 italic">No results</p>
+            )}
+            {filtered.map((option) => {
+              const checked = selected.includes(option.value)
+              const initials = option.label.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase()
+              return (
+                <button
+                  key={option.value}
+                  onClick={() => toggle(option.value)}
+                  className={cn(
+                    'w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors',
+                    checked ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50'
+                  )}
+                >
+                  <span className={cn(
+                    'h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors',
+                    checked ? 'bg-blue-600 border-blue-600' : 'border-gray-300'
+                  )}>
+                    {checked && <span className="text-white text-[9px] font-bold">✓</span>}
+                  </span>
+                  {'avatarUrl' in option && (
+                    option.avatarUrl ? (
+                      <img src={option.avatarUrl} className="h-5 w-5 rounded-full object-cover shrink-0" alt="" />
+                    ) : (
+                      <div className="h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
+                        <span className="text-[8px] font-bold text-white">{initials || '?'}</span>
+                      </div>
+                    )
+                  )}
+                  <span className="truncate">{option.label}</span>
+                </button>
+              )
+            })}
+          </div>
+          {selected.length > 0 && (
+            <div className="border-t border-gray-100 px-3 py-1.5">
+              <button
+                onClick={() => onChange([])}
+                className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

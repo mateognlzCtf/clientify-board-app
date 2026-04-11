@@ -17,6 +17,7 @@ export interface Issue {
   due_date: string | null
   start_date: string | null
   sprint_id: string | null
+  epic_id: string | null
   slack_thread: string | null
   pause_reason: string | null
   created_at: string
@@ -34,6 +35,7 @@ export interface IssueCreate {
   due_date?: string
   start_date?: string | null
   sprint_id?: string | null
+  epic_id?: string | null
   slack_thread?: string | null
   pause_reason?: string | null
 }
@@ -49,6 +51,7 @@ export interface IssueUpdate {
   start_date?: string | null
   position?: number
   sprint_id?: string | null
+  epic_id?: string | null
   slack_thread?: string | null
   pause_reason?: string | null
 }
@@ -56,4 +59,5 @@ export interface IssueUpdate {
 export interface IssueWithDetails extends Issue {
   assignee: { id: string; full_name: string | null; avatar_url: string | null } | null
   reporter: { id: string; full_name: string | null; avatar_url: string | null }
+  epic: { id: string; name: string; color: string } | null
 }

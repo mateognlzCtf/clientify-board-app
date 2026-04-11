@@ -29,6 +29,7 @@ import { useToast } from '@/providers/ToastProvider'
 import type { IssueWithDetails, IssueStatus, IssueUpdate } from '@/types/issue.types'
 import type { ProjectMemberPreview } from '@/services/projects.service'
 import type { Sprint } from '@/types/sprint.types'
+import type { Epic } from '@/types/epic.types'
 import { updateIssueAction, deleteIssueAction } from '../actions'
 import { useRefreshOnFocus } from '@/lib/hooks/useRefreshOnFocus'
 import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh'
@@ -40,9 +41,10 @@ interface KanbanBoardProps {
   issues: IssueWithDetails[]
   sprints: Sprint[]
   members: ProjectMemberPreview[]
+  epics: Epic[]
 }
 
-export function KanbanBoard({ projectId, currentUserId, issues: initialIssues, sprints, members }: KanbanBoardProps) {
+export function KanbanBoard({ projectId, currentUserId, issues: initialIssues, sprints, members, epics }: KanbanBoardProps) {
   const router = useRouter()
   const { toast } = useToast()
   useRefreshOnFocus(() => setDetailTarget(null))
@@ -193,6 +195,7 @@ export function KanbanBoard({ projectId, currentUserId, issues: initialIssues, s
             projectId={projectId}
             members={members}
             sprints={sprints}
+            epics={epics}
             onEdit={() => { setDetailTarget(null); setEditTarget(detailTarget) }}
             onDelete={() => { setDetailTarget(null); setDeleteTarget(detailTarget) }}
             onUpdated={(patch) => {
@@ -206,7 +209,7 @@ export function KanbanBoard({ projectId, currentUserId, issues: initialIssues, s
       {/* Edit modal */}
       <Modal open={editTarget !== null} onClose={() => setEditTarget(null)} title="Edit ticket" size="xl">
         {editTarget && (
-          <IssueForm mode="edit" issue={editTarget} members={members} sprints={sprints} onSubmit={handleEdit} onCancel={() => setEditTarget(null)} />
+          <IssueForm mode="edit" issue={editTarget} members={members} sprints={sprints} epics={epics} onSubmit={handleEdit} onCancel={() => setEditTarget(null)} />
         )}
       </Modal>
 
@@ -305,6 +308,14 @@ function KanbanCard({
         <span className="font-mono text-[10px] text-gray-400">{issue.key}</span>
         <TypeIcon type={issue.type} />
       </div>
+      {issue.epic && (
+        <span
+          className="text-[10px] font-semibold px-2 py-0.5 rounded-full self-start"
+          style={{ backgroundColor: issue.epic.color + '22', color: issue.epic.color }}
+        >
+          {issue.epic.name}
+        </span>
+      )}
       <p className="text-sm font-medium text-gray-800 leading-snug line-clamp-2">{issue.title}</p>
       <div className="flex items-center justify-between mt-1">
         <PriorityIcon priority={issue.priority} />
