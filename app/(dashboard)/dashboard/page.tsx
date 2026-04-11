@@ -34,12 +34,8 @@ export default async function DashboardPage() {
     <div className="p-6 max-w-7xl">
       {/* Page header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-gray-900">Mis proyectos</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          {projects && projects.length > 0
-            ? `${projects.length} ${projects.length === 1 ? 'proyecto' : 'proyectos'}`
-            : 'Aquí aparecerán tus proyectos'}
-        </p>
+        <h1 className="text-2xl font-semibold text-gray-900">For you</h1>
+        <p className="text-sm text-gray-500 mt-1">Recommended spaces</p>
       </div>
 
       <ProjectsClient

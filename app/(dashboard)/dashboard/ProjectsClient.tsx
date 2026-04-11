@@ -13,18 +13,16 @@
  */
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, FolderKanban } from 'lucide-react'
+import { Search, FolderKanban } from 'lucide-react'
 import { type ProjectWithMembers } from '@/services/projects.service'
 import { ProjectCard } from '@/components/projects/ProjectCard'
 import { ProjectForm } from '@/components/projects/ProjectForm'
 import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useToast } from '@/providers/ToastProvider'
-import type { ProjectCreate, ProjectUpdate } from '@/types/project.types'
+import type { ProjectUpdate } from '@/types/project.types'
 import {
-  createProjectAction,
   updateProjectAction,
   deleteProjectAction,
 } from './actions'
@@ -39,7 +37,6 @@ export function ProjectsClient({ projects, currentUserId }: ProjectsClientProps)
   const { toast } = useToast()
 
   const [search, setSearch] = useState('')
-  const [createOpen, setCreateOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<ProjectWithMembers | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ProjectWithMembers | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
@@ -54,24 +51,6 @@ export function ProjectsClient({ projects, currentUserId }: ProjectsClientProps)
         p.key.toLowerCase().includes(q)
     )
   }, [projects, search])
-
-  async function handleCreate(data: ProjectCreate) {
-    try {
-      const { error } = await createProjectAction(data)
-
-      if (error) {
-        toast(error, 'error')
-        return
-      }
-
-      toast('Proyecto creado correctamente.', 'success')
-      setCreateOpen(false)
-      router.refresh()
-    } catch (err) {
-      console.error('[handleCreate] unexpected error:', err)
-      toast('Error inesperado al crear el proyecto.', 'error')
-    }
-  }
 
   async function handleEdit(data: ProjectUpdate) {
     if (!editTarget) return
@@ -118,8 +97,8 @@ export function ProjectsClient({ projects, currentUserId }: ProjectsClientProps)
 
   return (
     <>
-      {/* Toolbar */}
-      <div className="flex items-center gap-3 mb-6 flex-wrap">
+      {/* Search */}
+      <div className="flex items-center gap-3 mb-6">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search
             size={15}
@@ -129,17 +108,12 @@ export function ProjectsClient({ projects, currentUserId }: ProjectsClientProps)
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar proyectos..."
+            placeholder="Search spaces..."
             className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg
                        focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
                        placeholder:text-gray-400"
           />
         </div>
-
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus size={16} />
-          Nuevo proyecto
-        </Button>
       </div>
 
       {/* Projects grid */}
@@ -158,14 +132,8 @@ export function ProjectsClient({ projects, currentUserId }: ProjectsClientProps)
       ) : projects.length === 0 ? (
         <EmptyState
           icon={<FolderKanban size={48} />}
-          title="Sin proyectos todavía"
-          description="Crea tu primer proyecto para empezar a gestionar tickets y colaborar con tu equipo."
-          action={
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus size={16} />
-              Crear primer proyecto
-            </Button>
-          }
+          title="No spaces yet"
+          description="Create your first space using the + button in the sidebar."
         />
       ) : (
         <EmptyState
@@ -174,19 +142,6 @@ export function ProjectsClient({ projects, currentUserId }: ProjectsClientProps)
           description={`No hay proyectos que coincidan con "${search}".`}
         />
       )}
-
-      {/* Modal: Crear proyecto */}
-      <Modal
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        title="Nuevo proyecto"
-      >
-        <ProjectForm
-          mode="create"
-          onSubmit={handleCreate}
-          onCancel={() => setCreateOpen(false)}
-        />
-      </Modal>
 
       {/* Modal: Editar proyecto */}
       <Modal
