@@ -189,6 +189,108 @@ export type Database = {
           }
         ]
       }
+      epics: {
+        Row: {
+          id: string
+          project_id: string
+          name: string
+          color: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          name: string
+          color?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          name?: string
+          color?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'epics_project_id_fkey'
+            columns: ['project_id']
+            isOneToOne: false
+            referencedRelation: 'projects'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      project_statuses: {
+        Row: {
+          id: string
+          project_id: string
+          name: string
+          color: string | null
+          position: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          name: string
+          color?: string | null
+          position?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          name?: string
+          color?: string | null
+          position?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'project_statuses_project_id_fkey'
+            columns: ['project_id']
+            isOneToOne: false
+            referencedRelation: 'projects'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      project_issue_types: {
+        Row: {
+          id: string
+          project_id: string
+          name: string
+          color: string | null
+          position: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          name: string
+          color?: string | null
+          position?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          name?: string
+          color?: string | null
+          position?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'project_issue_types_project_id_fkey'
+            columns: ['project_id']
+            isOneToOne: false
+            referencedRelation: 'projects'
+            referencedColumns: ['id']
+          }
+        ]
+      }
       issues: {
         Row: {
           id: string
@@ -203,7 +305,11 @@ export type Database = {
           reporter_id: string
           position: number
           due_date: string | null
+          start_date: string | null
           sprint_id: string | null
+          epic_id: string | null
+          slack_thread: string | null
+          pause_reason: string | null
           created_at: string
           updated_at: string
         }
@@ -220,7 +326,11 @@ export type Database = {
           reporter_id: string
           position?: number
           due_date?: string | null
+          start_date?: string | null
           sprint_id?: string | null
+          epic_id?: string | null
+          slack_thread?: string | null
+          pause_reason?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -237,7 +347,11 @@ export type Database = {
           reporter_id?: string
           position?: number
           due_date?: string | null
+          start_date?: string | null
           sprint_id?: string | null
+          epic_id?: string | null
+          slack_thread?: string | null
+          pause_reason?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -267,6 +381,13 @@ export type Database = {
             columns: ['sprint_id']
             isOneToOne: false
             referencedRelation: 'sprints'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'issues_epic_id_fkey'
+            columns: ['epic_id']
+            isOneToOne: false
+            referencedRelation: 'epics'
             referencedColumns: ['id']
           }
         ]

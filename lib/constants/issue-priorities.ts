@@ -4,6 +4,11 @@ export const ISSUE_PRIORITIES: Record<
   IssuePriority,
   { label: string; color: string; bgColor: string }
 > = {
+  lowest: {
+    label: 'Mínima',
+    color: 'text-gray-500',
+    bgColor: 'bg-gray-50',
+  },
   low: {
     label: 'Baja',
     color: 'text-green-700',
@@ -19,8 +24,8 @@ export const ISSUE_PRIORITIES: Record<
     color: 'text-orange-700',
     bgColor: 'bg-orange-50',
   },
-  urgent: {
-    label: 'Urgente',
+  highest: {
+    label: 'Crítica',
     color: 'text-red-700',
     bgColor: 'bg-red-50',
   },
