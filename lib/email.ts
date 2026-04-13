@@ -4,6 +4,100 @@ const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM = process.env.RESEND_FROM_EMAIL ?? 'Clientify Board <board@notifications.clientify.com>'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
 
+function guard() {
+  if (!process.env.RESEND_API_KEY) {
+    console.warn('[email] RESEND_API_KEY not set, skipping.')
+    return false
+  }
+  return true
+}
+
+export async function sendAssignmentNotification({
+  toEmail,
+  toName,
+  assignedByName,
+  issueKey,
+  issueTitle,
+  projectId,
+}: {
+  toEmail: string
+  toName: string
+  assignedByName: string
+  issueKey: string
+  issueTitle: string
+  projectId: string
+}) {
+  if (!guard()) return
+  const issueUrl = `${APP_URL}/project/${projectId}/list`
+  const { data, error } = await resend.emails.send({
+    from: FROM,
+    to: toEmail,
+    subject: `${assignedByName} te asignó ${issueKey}`,
+    html: `
+      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
+        <h2 style="font-size:16px;margin-bottom:8px">
+          Se te asignó <strong>${issueKey}: ${issueTitle}</strong>
+        </h2>
+        <p style="color:#555;font-size:14px;margin-bottom:16px">
+          <strong>${assignedByName}</strong> te asignó este ticket.
+        </p>
+        <a href="${issueUrl}"
+           style="display:inline-block;margin-top:4px;padding:8px 18px;background:#3b82f6;color:#fff;border-radius:6px;text-decoration:none;font-size:14px;font-weight:500">
+          Ver ticket
+        </a>
+        <p style="margin-top:24px;font-size:12px;color:#aaa">Clientify Board · no responder a este correo</p>
+      </div>
+    `,
+  })
+  if (error) console.error('[email] Resend error:', error)
+  else console.log('[email] Assignment sent to', toEmail, '| id:', data?.id)
+}
+
+export async function sendStatusChangeNotification({
+  toEmail,
+  toName,
+  changedByName,
+  issueKey,
+  issueTitle,
+  newStatus,
+  projectId,
+}: {
+  toEmail: string
+  toName: string
+  changedByName: string
+  issueKey: string
+  issueTitle: string
+  newStatus: string
+  projectId: string
+}) {
+  if (!guard()) return
+  const issueUrl = `${APP_URL}/project/${projectId}/list`
+  const statusLabel = newStatus.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  const { data, error } = await resend.emails.send({
+    from: FROM,
+    to: toEmail,
+    subject: `${issueKey} cambió de estado a ${statusLabel}`,
+    html: `
+      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
+        <h2 style="font-size:16px;margin-bottom:8px">
+          Estado actualizado en <strong>${issueKey}: ${issueTitle}</strong>
+        </h2>
+        <p style="color:#555;font-size:14px;margin-bottom:16px">
+          <strong>${changedByName}</strong> cambió el estado a
+          <strong style="color:#3b82f6">${statusLabel}</strong>.
+        </p>
+        <a href="${issueUrl}"
+           style="display:inline-block;margin-top:4px;padding:8px 18px;background:#3b82f6;color:#fff;border-radius:6px;text-decoration:none;font-size:14px;font-weight:500">
+          Ver ticket
+        </a>
+        <p style="margin-top:24px;font-size:12px;color:#aaa">Clientify Board · no responder a este correo</p>
+      </div>
+    `,
+  })
+  if (error) console.error('[email] Resend error:', error)
+  else console.log('[email] Status change sent to', toEmail, '| id:', data?.id)
+}
+
 export async function sendMentionNotification({
   toEmail,
   toName,
@@ -21,10 +115,7 @@ export async function sendMentionNotification({
   projectId: string
   commentSnippet: string
 }) {
-  if (!process.env.RESEND_API_KEY) {
-    console.warn('[email] RESEND_API_KEY not set, skipping.')
-    return
-  }
+  if (!guard()) return
 
   const issueUrl = `${APP_URL}/project/${projectId}/list`
 
