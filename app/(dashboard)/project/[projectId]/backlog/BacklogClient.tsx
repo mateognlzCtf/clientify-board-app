@@ -472,7 +472,6 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues, spr
             defaultSprintId={createIssueSprintId ?? null}
             onSubmit={handleCreateIssue}
             onCancel={() => setCreateIssueSprintId(undefined)}
-            onEpicCreated={(epic) => setEpics((prev) => [...prev, epic].sort((a, b) => a.name.localeCompare(b.name)))}
           />
         </Modal>
 
