@@ -13,6 +13,7 @@ import {
 import {
   createEpic, updateEpic, deleteEpic,
 } from '@/services/epics.service'
+import { deleteProject } from '@/services/projects.service'
 import type { ServiceResult } from '@/types/common.types'
 import type { ProjectStatus, ProjectIssueType } from '@/types/project-settings.types'
 import type { Epic } from '@/types/epic.types'
@@ -76,23 +77,25 @@ export async function deleteEpicSettingsAction(
 // ── STATUSES ─────────────────────────────────────────────────────────────────
 
 export async function createStatusAction(
-  projectId: string, name: string, color: string, position: number,
+  projectId: string, name: string, color: string, position: number, requiresPauseReason = false,
 ): Promise<ServiceResult<ProjectStatus>> {
   const { error } = await requireOwner(projectId)
   if (error) return { data: null, error }
   const supabase = createAdminClient()
-  const result = await createProjectStatus(supabase, projectId, name, color, position)
+  const result = await createProjectStatus(supabase, projectId, name, color, position, requiresPauseReason)
   if (!result.error) revalidateProject(projectId)
   return result
 }
 
 export async function updateStatusAction(
-  projectId: string, id: string, name: string, color: string,
+  projectId: string, id: string, name: string, color: string, requiresPauseReason?: boolean,
 ): Promise<ServiceResult<ProjectStatus>> {
   const { error } = await requireOwner(projectId)
   if (error) return { data: null, error }
   const supabase = createAdminClient()
-  const result = await updateProjectStatus(supabase, id, { name, color })
+  const updates: { name: string; color: string; requires_pause_reason?: boolean } = { name, color }
+  if (requiresPauseReason !== undefined) updates.requires_pause_reason = requiresPauseReason
+  const result = await updateProjectStatus(supabase, id, updates)
   if (!result.error) revalidateProject(projectId)
   return result
 }
@@ -167,4 +170,20 @@ export async function reorderTypesAction(
   ))
   revalidateProject(projectId)
   return { data: null, error: null }
+}
+
+// ── PROJECT ───────────────────────────────────────────────────────────────────
+
+export async function deleteProjectSettingsAction(
+  projectId: string,
+): Promise<ServiceResult<null>> {
+  const { error } = await requireOwner(projectId)
+  if (error) return { data: null, error }
+  const supabase = createAdminClient()
+  const result = await deleteProject(supabase, projectId)
+  if (!result.error) {
+    revalidatePath('/dashboard')
+    revalidatePath('/', 'layout')
+  }
+  return result
 }

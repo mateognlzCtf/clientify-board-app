@@ -18,14 +18,10 @@ import { type ProjectWithMembers } from '@/services/projects.service'
 import { ProjectCard } from '@/components/projects/ProjectCard'
 import { ProjectForm } from '@/components/projects/ProjectForm'
 import { Modal } from '@/components/ui/Modal'
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useToast } from '@/providers/ToastProvider'
 import type { ProjectUpdate } from '@/types/project.types'
-import {
-  updateProjectAction,
-  deleteProjectAction,
-} from './actions'
+import { updateProjectAction } from './actions'
 
 interface ProjectsClientProps {
   projects: ProjectWithMembers[]
@@ -38,8 +34,6 @@ export function ProjectsClient({ projects, currentUserId }: ProjectsClientProps)
 
   const [search, setSearch] = useState('')
   const [editTarget, setEditTarget] = useState<ProjectWithMembers | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<ProjectWithMembers | null>(null)
-  const [deleteLoading, setDeleteLoading] = useState(false)
 
   // Filtrado local por nombre (los filtros de URL vendrán en la Fase 9)
   const filteredProjects = useMemo(() => {
@@ -69,29 +63,6 @@ export function ProjectsClient({ projects, currentUserId }: ProjectsClientProps)
     } catch (err) {
       console.error('[handleEdit] unexpected error:', err)
       toast('Error inesperado al actualizar el proyecto.', 'error')
-    }
-  }
-
-  async function handleDelete() {
-    if (!deleteTarget) return
-    setDeleteLoading(true)
-
-    try {
-      const { error } = await deleteProjectAction(deleteTarget.id)
-
-      if (error) {
-        toast(error, 'error')
-        return
-      }
-
-      toast('Proyecto eliminado.', 'success')
-      setDeleteTarget(null)
-      router.refresh()
-    } catch (err) {
-      console.error('[handleDelete] unexpected error:', err)
-      toast('Error inesperado al eliminar el proyecto.', 'error')
-    } finally {
-      setDeleteLoading(false)
     }
   }
 
@@ -125,7 +96,6 @@ export function ProjectsClient({ projects, currentUserId }: ProjectsClientProps)
               project={project}
               currentUserId={currentUserId}
               onEdit={setEditTarget}
-              onDelete={setDeleteTarget}
             />
           ))}
         </div>
@@ -159,16 +129,6 @@ export function ProjectsClient({ projects, currentUserId }: ProjectsClientProps)
         )}
       </Modal>
 
-      {/* Confirmar eliminación */}
-      <ConfirmDialog
-        open={deleteTarget !== null}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={handleDelete}
-        loading={deleteLoading}
-        title="Eliminar proyecto"
-        description={`¿Estás seguro de que quieres eliminar "${deleteTarget?.name}"? Se eliminarán todos sus tickets, comentarios y archivos. Esta acción no se puede deshacer.`}
-        confirmLabel="Sí, eliminar"
-      />
     </>
   )
 }

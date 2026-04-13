@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Pencil, Check, X, ChevronUp, ChevronDown } from 'lucide-react'
+import { Plus, Trash2, Pencil, Check, X, ChevronUp, ChevronDown, PauseCircle } from 'lucide-react'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { useToast } from '@/providers/ToastProvider'
 import { formatSettingLabel } from '@/contexts/ProjectSettingsContext'
 import type { Epic } from '@/types/epic.types'
@@ -11,6 +12,7 @@ import {
   createEpicSettingsAction, updateEpicSettingsAction, deleteEpicSettingsAction,
   createStatusAction, updateStatusAction, deleteStatusAction, reorderStatusesAction,
   createTypeAction, updateTypeAction, deleteTypeAction, reorderTypesAction,
+  deleteProjectSettingsAction,
 } from '../settings-actions'
 
 interface Props {
@@ -27,8 +29,20 @@ export function SettingsClient({ projectId, epics: initialEpics, statuses: initi
   const [epics, setEpics] = useState(initialEpics)
   const [statuses, setStatuses] = useState(initialStatuses)
   const [types, setTypes] = useState(initialTypes)
+  const [deleteProjectOpen, setDeleteProjectOpen] = useState(false)
+  const [deleteProjectLoading, setDeleteProjectLoading] = useState(false)
 
   function refresh() { router.refresh() }
+
+  async function handleDeleteProject() {
+    setDeleteProjectLoading(true)
+    const { error } = await deleteProjectSettingsAction(projectId)
+    setDeleteProjectLoading(false)
+    if (error) { toast(error, 'error'); return }
+    toast('Project deleted.', 'success')
+    router.refresh()
+    router.push('/dashboard')
+  }
 
   return (
     <div className="space-y-8">
@@ -43,16 +57,12 @@ export function SettingsClient({ projectId, epics: initialEpics, statuses: initi
         title="Statuses"
         description="Define the workflow statuses for this project. Order determines board column order."
       >
-        <ItemManager
+        <StatusManager
           projectId={projectId}
-          items={statuses}
-          setItems={setStatuses}
+          statuses={statuses}
+          setStatuses={setStatuses}
           toast={toast}
           refresh={refresh}
-          onCreate={(projectId, name, color, pos) => createStatusAction(projectId, name, color, pos)}
-          onUpdate={(projectId, id, name, color) => updateStatusAction(projectId, id, name, color)}
-          onDelete={(projectId, id) => deleteStatusAction(projectId, id)}
-          onReorder={(projectId, updates) => reorderStatusesAction(projectId, updates)}
         />
       </SettingSection>
 
@@ -72,6 +82,32 @@ export function SettingsClient({ projectId, epics: initialEpics, statuses: initi
           onReorder={(projectId, updates) => reorderTypesAction(projectId, updates)}
         />
       </SettingSection>
+      <div className="bg-white rounded-xl border border-red-200 overflow-hidden">
+        <div className="p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-800">Delete project</p>
+              <p className="text-xs text-gray-500 mt-0.5">Permanently deletes all tickets, comments, sprints and epics.</p>
+            </div>
+            <button
+              onClick={() => setDeleteProjectOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 border border-red-300 rounded-lg hover:bg-red-50 transition-colors"
+            >
+              <Trash2 size={13} /> Delete project
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <ConfirmDialog
+        open={deleteProjectOpen}
+        onClose={() => setDeleteProjectOpen(false)}
+        onConfirm={handleDeleteProject}
+        loading={deleteProjectLoading}
+        title="Delete project"
+        description="Are you sure you want to permanently delete this project? All tickets, comments, sprints and epics will be deleted. This cannot be undone."
+        confirmLabel="Yes, delete project"
+      />
     </div>
   )
 }
@@ -179,6 +215,143 @@ function EpicsManager({
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') handleCreate() }}
           placeholder="New epic name…"
+          className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-400"
+        />
+        <button
+          onClick={handleCreate}
+          disabled={loading || !newName.trim()}
+          className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+        >
+          <Plus size={13} /> Add
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Status manager (with requires_pause_reason toggle) ───────────────────────
+
+function StatusManager({
+  projectId, statuses, setStatuses, toast, refresh,
+}: {
+  projectId: string
+  statuses: ProjectStatus[]
+  setStatuses: React.Dispatch<React.SetStateAction<ProjectStatus[]>>
+  toast: (msg: string, type: 'success' | 'error') => void
+  refresh: () => void
+}) {
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editColor, setEditColor] = useState('#6b7280')
+  const [editPause, setEditPause] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newColor, setNewColor] = useState('#6b7280')
+  const [loading, setLoading] = useState(false)
+
+  async function handleCreate() {
+    if (!newName.trim()) return
+    setLoading(true)
+    const nextPos = (statuses[statuses.length - 1]?.position ?? 0) + 1000
+    const { data, error } = await createStatusAction(projectId, newName.trim(), newColor, nextPos)
+    setLoading(false)
+    if (error || !data) { toast(error ?? 'Error', 'error'); return }
+    setStatuses((prev) => [...prev, data])
+    setNewName('')
+    setNewColor('#6b7280')
+    toast('Created.', 'success')
+    refresh()
+  }
+
+  async function handleUpdate(id: string) {
+    const { data, error } = await updateStatusAction(projectId, id, editName.trim(), editColor, editPause)
+    if (error || !data) { toast(error ?? 'Error', 'error'); return }
+    setStatuses((prev) => prev.map((s) => s.id === id ? data : s))
+    setEditId(null)
+    toast('Updated.', 'success')
+    refresh()
+  }
+
+  async function handleTogglePause(status: ProjectStatus) {
+    const { data, error } = await updateStatusAction(projectId, status.id, status.name, status.color, !status.requires_pause_reason)
+    if (error || !data) { toast(error ?? 'Error', 'error'); return }
+    setStatuses((prev) => prev.map((s) => s.id === status.id ? data : s))
+    refresh()
+  }
+
+  async function handleDelete(id: string) {
+    const { error } = await deleteStatusAction(projectId, id)
+    if (error) { toast(error, 'error'); return }
+    setStatuses((prev) => prev.filter((s) => s.id !== id))
+    toast('Deleted.', 'success')
+    refresh()
+  }
+
+  async function handleMove(index: number, direction: 'up' | 'down') {
+    const newItems = [...statuses]
+    const swapIndex = direction === 'up' ? index - 1 : index + 1
+    if (swapIndex < 0 || swapIndex >= newItems.length) return
+    ;[newItems[index], newItems[swapIndex]] = [newItems[swapIndex], newItems[index]]
+    const updates = newItems.map((s, i) => ({ id: s.id, position: (i + 1) * 1000 }))
+    setStatuses(newItems.map((s, i) => ({ ...s, position: (i + 1) * 1000 })))
+    await reorderStatusesAction(projectId, updates)
+    refresh()
+  }
+
+  return (
+    <div className="space-y-2">
+      {statuses.map((status, index) => (
+        <div key={status.id} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
+          {editId === status.id ? (
+            <>
+              <input type="color" value={editColor} onChange={(e) => setEditColor(e.target.value)} className="h-7 w-7 rounded cursor-pointer border border-gray-200 p-0.5" />
+              <input
+                autoFocus
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleUpdate(status.id); if (e.key === 'Escape') setEditId(null) }}
+                className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none shrink-0">
+                <input type="checkbox" checked={editPause} onChange={(e) => setEditPause(e.target.checked)} className="rounded" />
+                Pause reason
+              </label>
+              <button onClick={() => handleUpdate(status.id)} className="p-1 text-green-600 hover:bg-green-50 rounded"><Check size={14} /></button>
+              <button onClick={() => setEditId(null)} className="p-1 text-gray-400 hover:bg-gray-100 rounded"><X size={14} /></button>
+            </>
+          ) : (
+            <>
+              <div className="flex flex-col gap-0.5">
+                <button onClick={() => handleMove(index, 'up')} disabled={index === 0} className="p-0.5 text-gray-300 hover:text-gray-600 disabled:opacity-20"><ChevronUp size={12} /></button>
+                <button onClick={() => handleMove(index, 'down')} disabled={index === statuses.length - 1} className="p-0.5 text-gray-300 hover:text-gray-600 disabled:opacity-20"><ChevronDown size={12} /></button>
+              </div>
+              <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: status.color }} />
+              <span
+                className="flex-1 text-xs font-semibold px-2 py-0.5 rounded border"
+                style={{ backgroundColor: status.color + '22', color: status.color, borderColor: status.color + '44' }}
+              >
+                {formatSettingLabel(status.name)}
+              </span>
+              <button
+                onClick={() => handleTogglePause(status)}
+                title={status.requires_pause_reason ? 'Requires pause reason (click to disable)' : 'Does not require pause reason (click to enable)'}
+                className={`p-1 rounded transition-colors ${status.requires_pause_reason ? 'text-orange-500 bg-orange-50 hover:bg-orange-100' : 'text-gray-300 hover:text-gray-500 hover:bg-gray-100'}`}
+              >
+                <PauseCircle size={14} />
+              </button>
+              <button onClick={() => { setEditId(status.id); setEditName(status.name); setEditColor(status.color); setEditPause(status.requires_pause_reason) }} className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"><Pencil size={13} /></button>
+              <button onClick={() => handleDelete(status.id)} className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded"><Trash2 size={13} /></button>
+            </>
+          )}
+        </div>
+      ))}
+
+      <div className="flex items-center gap-2 pt-2">
+        <input type="color" value={newColor} onChange={(e) => setNewColor(e.target.value)} className="h-7 w-7 rounded cursor-pointer border border-gray-200 p-0.5" />
+        <input
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleCreate() }}
+          placeholder="New status name…"
           className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-400"
         />
         <button

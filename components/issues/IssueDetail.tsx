@@ -88,8 +88,9 @@ export function IssueDetail({
 
   // ── select/date handler ───────────────────────────────────────────────────
   async function handleChange(field: string, value: string) {
-    if (field === 'status' && value === 'stopper' && !pauseReason.trim()) {
-      toast('Fill in the Pause reason before setting status to Stopper.', 'error')
+    const targetStatus = projectStatuses.find((s) => s.name === value)
+    if (field === 'status' && targetStatus?.requires_pause_reason && !pauseReason.trim()) {
+      toast('Fill in the Pause reason before setting this status.', 'error')
       return
     }
     const patch: IssueUpdate = { [field]: value || null }
@@ -361,8 +362,8 @@ export function IssueDetail({
                   />
                 )}
               />
-              {status === 'stopper' && !pauseReason.trim() && editingField !== 'pause_reason' && (
-                <p className="text-xs text-red-500 font-medium mt-1">Required to use Stopper status.</p>
+              {projectStatuses.find((s) => s.name === status)?.requires_pause_reason && !pauseReason.trim() && editingField !== 'pause_reason' && (
+                <p className="text-xs text-red-500 font-medium mt-1">Required to use this status.</p>
               )}
             </DetailRow>
 

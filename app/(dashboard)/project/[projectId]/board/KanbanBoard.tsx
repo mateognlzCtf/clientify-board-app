@@ -89,6 +89,12 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
       const newStatus = over.id as string
       if (!issue || issue.status === newStatus) return
 
+      const targetStatus = projectStatuses.find((s) => s.name === newStatus)
+      if (targetStatus?.requires_pause_reason && !issue.pause_reason?.trim()) {
+        toast('Open the ticket and fill in Pause reason before moving to this status.', 'error')
+        return
+      }
+
       setIssues((prev) => prev.map((i) => (i.id === issue.id ? { ...i, status: newStatus as IssueWithDetails['status'] } : i)))
       const { error } = await updateIssueAction(projectId, issue.id, { status: newStatus as IssueUpdate['status'] })
       if (error) { toast(error, 'error'); setIssues(initialIssues) }

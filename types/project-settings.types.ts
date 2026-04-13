@@ -4,6 +4,7 @@ export interface ProjectStatus {
   name: string
   color: string
   position: number
+  requires_pause_reason: boolean
   created_at: string
 }
 

@@ -39,7 +39,11 @@ export function IssueForm(props: IssueFormProps) {
   const isEdit = props.mode === 'edit'
   const issue = isEdit ? (props as EditModeProps).issue : null
 
-  const defaultStatus = projectStatuses[0]?.name ?? 'todo'
+  const availableStatuses = isEdit
+    ? projectStatuses
+    : projectStatuses.filter((s) => !s.requires_pause_reason)
+
+  const defaultStatus = availableStatuses[0]?.name ?? 'todo'
   const defaultType = projectTypes[0]?.name ?? 'task'
 
   const [title, setTitle] = useState(issue?.title ?? '')
@@ -172,7 +176,7 @@ export function IssueForm(props: IssueFormProps) {
             className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm
                        focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            {projectStatuses.map((s) => (
+            {availableStatuses.map((s) => (
               <option key={s.id} value={s.name}>{formatSettingLabel(s.name)}</option>
             ))}
           </select>

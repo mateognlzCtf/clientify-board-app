@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import Image from 'next/image'
@@ -36,6 +36,8 @@ export function Sidebar({ projects: initialProjects, ownerProjectIds }: SidebarP
   const [collapsed, setCollapsed] = useState(false)
   const [projects, setProjects] = useState(initialProjects)
   const [createOpen, setCreateOpen] = useState(false)
+
+  useEffect(() => { setProjects(initialProjects) }, [initialProjects])
   const pathname = usePathname()
   const router = useRouter()
 

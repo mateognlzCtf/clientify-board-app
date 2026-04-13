@@ -21,10 +21,11 @@ export async function createProjectStatus(
   name: string,
   color: string,
   position: number,
+  requiresPauseReason = false,
 ): Promise<ServiceResult<ProjectStatus>> {
   const { data, error } = await supabase
     .from('project_statuses')
-    .insert({ project_id: projectId, name: name.trim(), color, position })
+    .insert({ project_id: projectId, name: name.trim(), color, position, requires_pause_reason: requiresPauseReason })
     .select()
     .single()
   if (error) return { data: null, error: 'Error creating status.' }
@@ -34,7 +35,7 @@ export async function createProjectStatus(
 export async function updateProjectStatus(
   supabase: Client,
   id: string,
-  updates: { name?: string; color?: string; position?: number },
+  updates: { name?: string; color?: string; position?: number; requires_pause_reason?: boolean },
 ): Promise<ServiceResult<ProjectStatus>> {
   const { data, error } = await supabase
     .from('project_statuses')

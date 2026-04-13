@@ -7,7 +7,7 @@
  * Acciones: ir al tablero, editar (owners/admins), eliminar (solo owner).
  */
 import Link from 'next/link'
-import { MoreHorizontal, Pencil, Trash2, Users, FolderKanban } from 'lucide-react'
+import { MoreHorizontal, Pencil, FolderKanban } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils/cn'
 import type { ProjectWithMembers } from '@/services/projects.service'
@@ -16,21 +16,18 @@ interface ProjectCardProps {
   project: ProjectWithMembers
   currentUserId: string
   onEdit: (project: ProjectWithMembers) => void
-  onDelete: (project: ProjectWithMembers) => void
 }
 
 export function ProjectCard({
   project,
   currentUserId,
   onEdit,
-  onDelete,
 }: ProjectCardProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
   const currentMember = project.members.find((m) => m.user_id === currentUserId)
   const canEdit = currentMember?.role === 'owner' || currentMember?.role === 'admin'
-  const canDelete = currentMember?.role === 'owner'
 
   // Cerrar menú al hacer clic fuera
   useEffect(() => {
@@ -64,7 +61,7 @@ export function ProjectCard({
         </div>
 
         {/* Actions menu */}
-        {(canEdit || canDelete) && (
+        {canEdit && (
           <div className="relative" ref={menuRef}>
             <button
               onClick={() => setMenuOpen(!menuOpen)}
@@ -80,30 +77,13 @@ export function ProjectCard({
 
             {menuOpen && (
               <div className="absolute right-0 top-8 z-10 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1">
-                {canEdit && (
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false)
-                      onEdit(project)
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                  >
-                    <Pencil size={14} />
-                    Editar
-                  </button>
-                )}
-                {canDelete && (
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false)
-                      onDelete(project)
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
-                  >
-                    <Trash2 size={14} />
-                    Eliminar
-                  </button>
-                )}
+                <button
+                  onClick={() => { setMenuOpen(false); onEdit(project) }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  <Pencil size={14} />
+                  Editar
+                </button>
               </div>
             )}
           </div>

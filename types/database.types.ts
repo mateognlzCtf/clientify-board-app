@@ -230,6 +230,7 @@ export type Database = {
           name: string
           color: string | null
           position: number
+          requires_pause_reason: boolean
           created_at: string
         }
         Insert: {
@@ -238,6 +239,7 @@ export type Database = {
           name: string
           color?: string | null
           position?: number
+          requires_pause_reason?: boolean
           created_at?: string
         }
         Update: {
@@ -246,6 +248,7 @@ export type Database = {
           name?: string
           color?: string | null
           position?: number
+          requires_pause_reason?: boolean
         }
         Relationships: [
           {
