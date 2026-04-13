@@ -2,7 +2,15 @@
 
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import { Plus, Search, Ticket, X, ChevronDown, MessageSquare } from 'lucide-react'
+import { Plus, Search, Ticket, X, ChevronDown, MessageSquare, GripVertical } from 'lucide-react'
+import {
+  DndContext, DragOverlay, PointerSensor, useSensor, useSensors,
+  type DragStartEvent, type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext, useSortable, verticalListSortingStrategy, arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -55,6 +63,16 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
   useRefreshOnFocus(() => setDetailTarget(null))
   useRealtimeRefresh(projectId)
 
+  const [localIssues, setLocalIssues] = useState<IssueWithDetails[]>(
+    [...issues].sort((a, b) => a.position - b.position)
+  )
+  useEffect(() => {
+    setLocalIssues([...issues].sort((a, b) => a.position - b.position))
+  }, [issues])
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  const [activeIssue, setActiveIssue] = useState<IssueWithDetails | null>(null)
+
   const [search, setSearch] = useState('')
   const [filters, setFilters] = useState<ActiveFilters>(initialFilters)
   const [createOpen, setCreateOpen] = useState(false)
@@ -92,7 +110,7 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
     filters.types.length > 0 || !!filters.assigneeId
 
   const filtered = useMemo(() => {
-    return issues.filter((i) => {
+    return localIssues.filter((i) => {
       if (search.trim()) {
         const q = search.trim().toLowerCase()
         if (!i.title.toLowerCase().includes(q) && !i.key.toLowerCase().includes(q)) return false
@@ -106,7 +124,26 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
       }
       return true
     })
-  }, [issues, search, filters])
+  }, [localIssues, search, filters])
+
+  function handleDragStart({ active }: DragStartEvent) {
+    setActiveIssue(localIssues.find((i) => i.id === active.id) ?? null)
+  }
+
+  async function handleDragEnd({ active, over }: DragEndEvent) {
+    setActiveIssue(null)
+    if (!over || active.id === over.id) return
+    const oldIndex = filtered.findIndex((i) => i.id === active.id)
+    const newIndex = filtered.findIndex((i) => i.id === over.id)
+    if (oldIndex === -1 || newIndex === -1) return
+    const reordered = arrayMove(filtered, oldIndex, newIndex)
+    const filteredIds = new Set(filtered.map((i) => i.id))
+    const rest = localIssues.filter((i) => !filteredIds.has(i.id))
+    setLocalIssues([...reordered, ...rest])
+    await Promise.all(
+      reordered.map((issue, idx) => updateIssueAction(projectId, issue.id, { position: idx }))
+    )
+  }
 
   async function handleCreate(data: IssueCreate) {
     try {
@@ -266,95 +303,49 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
 
       {/* Table */}
       {filtered.length > 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-          <table className="w-full text-sm whitespace-nowrap">
-            <thead>
-              <tr className="border-b border-gray-100 bg-gray-50">
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20">Type</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Key</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[200px]">Summary</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Parent</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Status</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Comments</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Sprint</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Assignee</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Due date</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Priority</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Created</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Updated</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Reporter</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {filtered.map((issue) => {
-                const sprint = sprints.find((s) => s.id === issue.sprint_id)
-                return (
-                  <tr key={issue.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3"><TypeIcon type={issue.type} /></td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-400">{issue.key}</td>
-                    <td className="px-4 py-3 max-w-[260px]">
-                      <button
-                        onClick={() => setDetailTarget(issue)}
-                        className="text-left text-gray-900 hover:text-blue-600 font-medium transition-colors truncate block w-full"
-                      >
-                        {issue.title}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3">
-                      {issue.epic ? (
-                        <span
-                          className="text-[11px] font-semibold px-2 py-0.5 rounded-full truncate max-w-[130px] block"
-                          style={{ backgroundColor: issue.epic.color + '22', color: issue.epic.color }}
-                        >
-                          {issue.epic.name}
-                        </span>
-                      ) : (
-                        <span className="text-gray-300 text-xs">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3"><StatusBadge status={issue.status} /></td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => setDetailTarget(issue)}
-                        className="flex items-center gap-1 text-xs text-gray-400 hover:text-blue-600 transition-colors"
-                      >
-                        <MessageSquare size={13} />
-                        <span>
-                          {issue.comment_count > 0
-                            ? `${issue.comment_count} comment${issue.comment_count === 1 ? '' : 's'}`
-                            : 'Add comment'}
-                        </span>
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-600">
-                      {sprint ? (
-                        <span className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-xs truncate max-w-[120px] block">
-                          {sprint.name}
-                        </span>
-                      ) : (
-                        <span className="text-gray-300">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3"><UserCell person={issue.assignee} fallback="Unassigned" /></td>
-                    <td className="px-4 py-3">
-                      {issue.due_date ? (
-                        <span className={cn('text-xs', isOverdue(issue.due_date) ? 'text-red-500 font-medium' : 'text-gray-600')}>
-                          {formatDate(issue.due_date)}
-                        </span>
-                      ) : (
-                        <span className="text-gray-300 text-xs">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3"><PriorityIcon priority={issue.priority} showLabel /></td>
-                    <td className="px-4 py-3 text-xs text-gray-400">{formatDate(issue.created_at)}</td>
-                    <td className="px-4 py-3 text-xs text-gray-400">{formatDate(issue.updated_at)}</td>
-                    <td className="px-4 py-3"><UserCell person={issue.reporter} fallback="Unknown" /></td>
+        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+          <SortableContext items={filtered.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+            <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+              <table className="w-full text-sm whitespace-nowrap">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50">
+                    <th className="w-8 px-2" />
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20">Type</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Key</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[200px]">Summary</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Parent</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Status</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Comments</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Sprint</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Assignee</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Due date</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Priority</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Created</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Updated</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Reporter</th>
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {filtered.map((issue) => (
+                    <SortableIssueRow
+                      key={issue.id}
+                      issue={issue}
+                      sprints={sprints}
+                      onDetail={() => setDetailTarget(issue)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </SortableContext>
+          <DragOverlay dropAnimation={null}>
+            {activeIssue && (
+              <div className="bg-white border border-blue-300 rounded-lg shadow-xl px-4 py-2 text-sm font-medium text-gray-800 opacity-95">
+                {activeIssue.key} — {activeIssue.title}
+              </div>
+            )}
+          </DragOverlay>
+        </DndContext>
       ) : issues.length === 0 ? (
         <EmptyState
           icon={<Ticket size={48} />}
@@ -419,6 +410,98 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
         confirmLabel="Yes, delete"
       />
     </>
+  )
+}
+
+// ── Sortable row ─────────────────────────────────────────────────────────────
+
+function SortableIssueRow({
+  issue, sprints, onDetail,
+}: {
+  issue: IssueWithDetails
+  sprints: Sprint[]
+  onDetail: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: issue.id })
+  const style = { transform: CSS.Transform.toString(transform), transition }
+  const sprint = sprints.find((s) => s.id === issue.sprint_id)
+
+  return (
+    <tr
+      ref={setNodeRef}
+      style={style}
+      className={cn('hover:bg-gray-50 transition-colors', isDragging && 'opacity-40 bg-blue-50')}
+    >
+      <td className="px-2 py-3 w-8">
+        <button
+          {...attributes}
+          {...listeners}
+          className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 p-0.5 rounded"
+          tabIndex={-1}
+        >
+          <GripVertical size={14} />
+        </button>
+      </td>
+      <td className="px-4 py-3"><TypeIcon type={issue.type} /></td>
+      <td className="px-4 py-3 font-mono text-xs text-gray-400">{issue.key}</td>
+      <td className="px-4 py-3 max-w-[260px]">
+        <button
+          onClick={onDetail}
+          className="text-left text-gray-900 hover:text-blue-600 font-medium transition-colors truncate block w-full"
+        >
+          {issue.title}
+        </button>
+      </td>
+      <td className="px-4 py-3">
+        {issue.epic ? (
+          <span
+            className="text-[11px] font-semibold px-2 py-0.5 rounded-full truncate max-w-[130px] block"
+            style={{ backgroundColor: issue.epic.color + '22', color: issue.epic.color }}
+          >
+            {issue.epic.name}
+          </span>
+        ) : (
+          <span className="text-gray-300 text-xs">—</span>
+        )}
+      </td>
+      <td className="px-4 py-3"><StatusBadge status={issue.status} /></td>
+      <td className="px-4 py-3">
+        <button
+          onClick={onDetail}
+          className="flex items-center gap-1 text-xs text-gray-400 hover:text-blue-600 transition-colors"
+        >
+          <MessageSquare size={13} />
+          <span>
+            {issue.comment_count > 0
+              ? `${issue.comment_count} comment${issue.comment_count === 1 ? '' : 's'}`
+              : 'Add comment'}
+          </span>
+        </button>
+      </td>
+      <td className="px-4 py-3 text-xs text-gray-600">
+        {sprint ? (
+          <span className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-xs truncate max-w-[120px] block">
+            {sprint.name}
+          </span>
+        ) : (
+          <span className="text-gray-300">—</span>
+        )}
+      </td>
+      <td className="px-4 py-3"><UserCell person={issue.assignee} fallback="Unassigned" /></td>
+      <td className="px-4 py-3">
+        {issue.due_date ? (
+          <span className={cn('text-xs', isOverdue(issue.due_date) ? 'text-red-500 font-medium' : 'text-gray-600')}>
+            {formatDate(issue.due_date)}
+          </span>
+        ) : (
+          <span className="text-gray-300 text-xs">—</span>
+        )}
+      </td>
+      <td className="px-4 py-3"><PriorityIcon priority={issue.priority} showLabel /></td>
+      <td className="px-4 py-3 text-xs text-gray-400">{formatDate(issue.created_at)}</td>
+      <td className="px-4 py-3 text-xs text-gray-400">{formatDate(issue.updated_at)}</td>
+      <td className="px-4 py-3"><UserCell person={issue.reporter} fallback="Unknown" /></td>
+    </tr>
   )
 }
 
