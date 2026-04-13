@@ -57,22 +57,48 @@ export async function updateIssueAction(
 ): Promise<ServiceResult<Issue>> {
   const user = await getAuthenticatedUser()
   const supabase = createAdminClient()
+
+  // Fetch previous assignee before updating so we can detect reassignment
+  const { data: previous } = await supabase
+    .from('issues')
+    .select('assignee_id')
+    .eq('id', issueId)
+    .single()
+
   const result = await updateIssueService(supabase, issueId, data)
 
-  if (!result.error) {
+  if (!result.error && result.data) {
     revalidatePath(`/project/${projectId}/list`)
     revalidatePath(`/project/${projectId}/backlog`)
     revalidatePath(`/project/${projectId}/board`)
 
-    // Notify assignee on status change if different from updater
-    if (result.data && data.status && result.data.assignee_id && result.data.assignee_id !== user.id) {
+    const newAssigneeId = result.data.assignee_id
+
+    // Notify on status change (assignee != updater)
+    if (data.status && newAssigneeId && newAssigneeId !== user.id) {
       void notifyStatusChange({
         supabase,
-        assigneeId: result.data.assignee_id,
+        assigneeId: newAssigneeId,
         updaterId: user.id,
         issue: result.data,
         projectId,
         newStatus: data.status,
+      })
+    }
+
+    // Notify on reassignment (new assignee != previous && != updater)
+    if (
+      data.assignee_id !== undefined &&
+      newAssigneeId &&
+      newAssigneeId !== previous?.assignee_id &&
+      newAssigneeId !== user.id
+    ) {
+      void notifyAssignment({
+        supabase,
+        assigneeId: newAssigneeId,
+        creatorId: user.id,
+        issue: result.data,
+        projectId,
       })
     }
   }
