@@ -59,6 +59,11 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues, spr
   // Sync when server re-fetches after router.refresh()
   useEffect(() => { setSprints(initialSprints) }, [initialSprints])
   useEffect(() => { setAllIssues(issues) }, [issues])
+  useEffect(() => {
+    if (!detailTarget) return
+    const fresh = issues.find((i) => i.id === detailTarget.id)
+    if (fresh) setDetailTarget(fresh)
+  }, [issues])
   const [draggingIssue, setDraggingIssue] = useState<IssueWithDetails | null>(null)
 
   // Filters

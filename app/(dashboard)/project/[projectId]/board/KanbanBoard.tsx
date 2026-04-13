@@ -57,6 +57,11 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
 
   // Sync when server re-fetches after router.refresh()
   useEffect(() => { setIssues(initialIssues) }, [initialIssues])
+  useEffect(() => {
+    if (!detailTarget) return
+    const fresh = initialIssues.find((i) => i.id === detailTarget.id)
+    if (fresh) setDetailTarget(fresh)
+  }, [initialIssues])
   const [activeIssue, setActiveIssue] = useState<IssueWithDetails | null>(null)
   const [detailTarget, setDetailTarget] = useState<IssueWithDetails | null>(null)
   const [editTarget, setEditTarget] = useState<IssueWithDetails | null>(null)

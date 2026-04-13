@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { Plus, Search, Ticket, X, ChevronDown, MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -57,6 +57,11 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
   const [filters, setFilters] = useState<ActiveFilters>(initialFilters)
   const [createOpen, setCreateOpen] = useState(false)
   const [detailTarget, setDetailTarget] = useState<IssueWithDetails | null>(null)
+  useEffect(() => {
+    if (!detailTarget) return
+    const fresh = issues.find((i) => i.id === detailTarget.id)
+    if (fresh) setDetailTarget(fresh)
+  }, [issues])
   const [editTarget, setEditTarget] = useState<IssueWithDetails | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<IssueWithDetails | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
