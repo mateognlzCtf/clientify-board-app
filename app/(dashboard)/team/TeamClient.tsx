@@ -73,24 +73,24 @@ function PersonCard({ profile }: { profile: Profile }) {
   const color = colors[profile.id.charCodeAt(0) % colors.length]
 
   return (
-    <div className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-200 hover:border-gray-300 hover:shadow-sm transition-all">
+    <div className="flex items-stretch bg-white rounded-xl border border-gray-200 hover:border-gray-300 hover:shadow-sm transition-all overflow-hidden min-h-[80px]">
       {/* Avatar */}
-      <div className="shrink-0">
+      <div className="shrink-0 w-20">
         {profile.avatar_url ? (
           <img
             src={profile.avatar_url}
             alt={profile.full_name ?? profile.email}
-            className="h-10 w-10 rounded-full object-cover"
+            className="h-full w-full object-cover object-top"
           />
         ) : (
-          <div className={`h-10 w-10 rounded-full ${color} flex items-center justify-center`}>
-            <span className="text-sm font-bold text-white">{initials}</span>
+          <div className={`h-full w-full ${color} flex items-center justify-center`}>
+            <span className="text-lg font-bold text-white">{initials}</span>
           </div>
         )}
       </div>
 
       {/* Info */}
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 px-3 py-3 flex flex-col justify-center">
         <p className="text-sm font-medium text-gray-900 truncate">
           {profile.full_name ?? profile.email}
         </p>
