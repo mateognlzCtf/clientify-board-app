@@ -98,6 +98,53 @@ export async function sendStatusChangeNotification({
   else console.log('[email] Status change sent to', toEmail, '| id:', data?.id)
 }
 
+export async function sendProjectInviteNotification({
+  toEmail,
+  toName,
+  invitedByName,
+  projectName,
+  projectId,
+}: {
+  toEmail: string
+  toName: string
+  invitedByName: string
+  projectName: string
+  projectId: string
+}) {
+  if (!guard()) return
+  const projectUrl = `${APP_URL}/project/${projectId}/backlog`
+  const firstName = toName.split(' ')[0]
+  const { data, error } = await resend.emails.send({
+    from: FROM,
+    to: toEmail,
+    subject: `${invitedByName} te invitó a unirte a ${projectName}`,
+    html: `
+      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111;padding:32px 24px">
+        <p style="font-size:22px;font-weight:700;margin:0 0 24px">👋 Hola, ${firstName}</p>
+
+        <p style="font-size:15px;color:#333;margin:0 0 8px">
+          <strong>${invitedByName}</strong> te invitó a unirte al proyecto
+          <strong>${projectName}</strong> en Clientify Board.
+        </p>
+
+        <p style="font-size:14px;color:#666;margin:0 0 28px">
+          Clientify Board es una herramienta de gestión de proyectos y tickets para equipos.
+        </p>
+
+        <a href="${projectUrl}"
+           style="display:inline-block;padding:10px 24px;background:#3b82f6;color:#fff;border-radius:6px;text-decoration:none;font-size:14px;font-weight:600">
+          Aceptar invitación
+        </a>
+
+        <hr style="margin:32px 0;border:none;border-top:1px solid #eee" />
+        <p style="font-size:12px;color:#aaa;margin:0">Clientify Board · no responder a este correo</p>
+      </div>
+    `,
+  })
+  if (error) console.error('[email] Resend error:', error)
+  else console.log('[email] Project invite sent to', toEmail, '| id:', data?.id)
+}
+
 export async function sendMentionNotification({
   toEmail,
   toName,

@@ -11,6 +11,7 @@ import {
 } from '@/services/members.service'
 import type { MemberRole } from '@/types/member.types'
 import type { ServiceResult } from '@/types/common.types'
+import { sendProjectInviteNotification } from '@/lib/email'
 
 async function getAuthenticatedUser() {
   const ssrClient = await createSsrClient()
@@ -24,13 +25,43 @@ export async function inviteMemberAction(
   email: string,
   role: MemberRole
 ): Promise<ServiceResult<null>> {
-  await getAuthenticatedUser()
+  const user = await getAuthenticatedUser()
   const supabase = createAdminClient()
   const result = await inviteMemberService(supabase, projectId, email, role)
 
-  if (!result.error) revalidatePath(`/project/${projectId}/members`)
+  if (!result.error) {
+    revalidatePath(`/project/${projectId}/members`)
+    void notifyInvite({ supabase, projectId, inviteeEmail: email, inviterId: user.id })
+  }
 
   return result
+}
+
+async function notifyInvite({
+  supabase, projectId, inviteeEmail, inviterId,
+}: {
+  supabase: ReturnType<typeof createAdminClient>
+  projectId: string
+  inviteeEmail: string
+  inviterId: string
+}) {
+  try {
+    const [{ data: project }, { data: inviter }, { data: invitee }] = await Promise.all([
+      supabase.from('projects').select('name').eq('id', projectId).single(),
+      supabase.from('profiles').select('full_name').eq('id', inviterId).single(),
+      supabase.from('profiles').select('email, full_name').eq('email', inviteeEmail).single(),
+    ])
+    if (!project || !invitee?.email) return
+    await sendProjectInviteNotification({
+      toEmail: invitee.email,
+      toName: invitee.full_name ?? invitee.email,
+      invitedByName: inviter?.full_name ?? 'Alguien',
+      projectName: project.name,
+      projectId,
+    })
+  } catch (err) {
+    console.error('[notifyInvite]', err)
+  }
 }
 
 export async function updateMemberRoleAction(

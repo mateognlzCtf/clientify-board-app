@@ -160,6 +160,19 @@ export async function getProject(
  * Crea un nuevo proyecto. El trigger handle_new_project() agrega automáticamente
  * al creador como owner en project_members e inicializa la secuencia de issues.
  */
+const DEFAULT_STATUSES = [
+  { name: 'To Do',       color: '#6b7280', position: 0 },
+  { name: 'In Progress', color: '#3b82f6', position: 1 },
+  { name: 'In Review',   color: '#f59e0b', position: 2 },
+  { name: 'Done',        color: '#22c55e', position: 3 },
+]
+
+const DEFAULT_TYPES = [
+  { name: 'Task',    color: '#3b82f6', position: 0 },
+  { name: 'Bug',     color: '#ef4444', position: 1 },
+  { name: 'Feature', color: '#8b5cf6', position: 2 },
+]
+
 export async function createProject(
   supabase: Client,
   userId: string,
@@ -168,7 +181,7 @@ export async function createProject(
   const { data, error } = await supabase
     .from('projects')
     .insert({
-      name: project.name.trim(),
+      name: project.name.trim().toUpperCase(),
       key: project.key.trim().toUpperCase(),
       description: project.description?.trim() || null,
       owner_id: userId,
@@ -186,6 +199,18 @@ export async function createProject(
     }
     return { data: null, error: `Error al crear el proyecto: ${error.message}` }
   }
+
+  const projectId = (data as Project).id
+
+  // Seed default statuses and types in parallel
+  await Promise.all([
+    supabase.from('project_statuses').insert(
+      DEFAULT_STATUSES.map((s) => ({ ...s, project_id: projectId }))
+    ),
+    supabase.from('project_issue_types').insert(
+      DEFAULT_TYPES.map((t) => ({ ...t, project_id: projectId }))
+    ),
+  ])
 
   return { data: data as Project, error: null }
 }

@@ -68,12 +68,10 @@ export function ProjectForm(props: ProjectFormProps) {
 
   // Auto-generar key desde el nombre (solo en modo crear)
   function handleNameChange(value: string) {
-    setName(value)
+    const upper = value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 17)
+    setName(upper)
     if (!isEdit && !key) {
-      const autoKey = value
-        .toUpperCase()
-        .replace(/[^A-Z0-9]/g, '')
-        .slice(0, 5)
+      const autoKey = upper.slice(0, 5)
       setKey(autoKey)
     }
   }
