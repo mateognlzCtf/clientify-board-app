@@ -5,6 +5,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database.types'
 import type { ServiceResult } from '@/types/common.types'
 import type { Issue, IssueCreate, IssueUpdate, IssueWithDetails } from '@/types/issue.types'
+import type { JSONContent } from '@tiptap/core'
+import { extractStoragePaths, COMMENT_IMAGES_BUCKET } from '@/lib/utils/storage'
 
 type Client = SupabaseClient<Database>
 
@@ -201,6 +203,31 @@ export async function deleteIssue(
   supabase: Client,
   issueId: string
 ): Promise<ServiceResult<null>> {
+  // Clean up Storage images from comments and description before deleting
+  const { data: issue } = await supabase
+    .from('issues')
+    .select('description')
+    .eq('id', issueId)
+    .single()
+
+  const { data: comments } = await supabase
+    .from('comments')
+    .select('content')
+    .eq('issue_id', issueId)
+
+  const paths: string[] = []
+
+  if (issue?.description) {
+    try { paths.push(...extractStoragePaths(JSON.parse(issue.description) as JSONContent)) } catch {}
+  }
+  for (const c of comments ?? []) {
+    if (c.content) paths.push(...extractStoragePaths(c.content as JSONContent))
+  }
+
+  if (paths.length > 0) {
+    await supabase.storage.from(COMMENT_IMAGES_BUCKET).remove(paths)
+  }
+
   const { error } = await supabase.from('issues').delete().eq('id', issueId)
 
   if (error) {

@@ -8,6 +8,8 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database.types'
+import type { JSONContent } from '@tiptap/core'
+import { extractStoragePaths, COMMENT_IMAGES_BUCKET } from '@/lib/utils/storage'
 import type { ServiceResult } from '@/types/common.types'
 import type { Project, ProjectCreate, ProjectUpdate } from '@/types/project.types'
 import type { MemberRole } from '@/types/member.types'
@@ -251,6 +253,35 @@ export async function deleteProject(
   supabase: Client,
   projectId: string
 ): Promise<ServiceResult<null>> {
+  // Clean up Storage images from all comments and descriptions in the project
+  const { data: issues } = await supabase
+    .from('issues')
+    .select('id, description')
+    .eq('project_id', projectId)
+
+  if (issues && issues.length > 0) {
+    const issueIds = issues.map((i) => i.id)
+    const { data: comments } = await supabase
+      .from('comments')
+      .select('content')
+      .in('issue_id', issueIds)
+
+    const paths: string[] = []
+
+    for (const issue of issues) {
+      if (issue.description) {
+        try { paths.push(...extractStoragePaths(JSON.parse(issue.description) as JSONContent)) } catch {}
+      }
+    }
+    for (const c of comments ?? []) {
+      if (c.content) paths.push(...extractStoragePaths(c.content as JSONContent))
+    }
+
+    if (paths.length > 0) {
+      await supabase.storage.from(COMMENT_IMAGES_BUCKET).remove(paths)
+    }
+  }
+
   const { error } = await supabase.from('projects').delete().eq('id', projectId)
 
   if (error) {
