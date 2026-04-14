@@ -91,7 +91,7 @@ export function ProjectForm(props: ProjectFormProps) {
           type="text"
           value={name}
           onChange={(e) => handleNameChange(e.target.value)}
-          placeholder="Ej: Clientify Web"
+          placeholder="CLIENTIFY"
           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
                      focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
                      placeholder:text-gray-400"
