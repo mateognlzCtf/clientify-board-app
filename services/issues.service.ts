@@ -171,6 +171,28 @@ export async function updateIssue(
   issueId: string,
   data: IssueUpdate
 ): Promise<ServiceResult<Issue>> {
+  // If description is changing, clean up removed images from Storage
+  if (data.description !== undefined) {
+    const { data: current } = await supabase
+      .from('issues')
+      .select('description')
+      .eq('id', issueId)
+      .single()
+
+    const oldPaths = current?.description
+      ? (() => { try { return extractStoragePaths(JSON.parse(current.description) as JSONContent) } catch { return [] } })()
+      : []
+
+    const newPaths = data.description
+      ? (() => { try { return extractStoragePaths(JSON.parse(data.description) as JSONContent) } catch { return [] } })()
+      : []
+
+    const removed = oldPaths.filter((p) => !newPaths.includes(p))
+    if (removed.length > 0) {
+      await supabase.storage.from(COMMENT_IMAGES_BUCKET).remove(removed)
+    }
+  }
+
   const { data: result, error } = await supabase
     .from('issues')
     .update({
