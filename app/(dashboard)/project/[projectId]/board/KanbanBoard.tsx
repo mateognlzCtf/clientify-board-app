@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   DndContext,
@@ -17,16 +17,17 @@ import {
 } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { SlidersHorizontal, X, ChevronRight, Search, User } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { IssueDetail } from '@/components/issues/IssueDetail'
 import { IssueForm } from '@/components/issues/IssueForm'
-import { PriorityIcon } from '@/components/issues/PriorityIcon'
+import { PriorityIcon, ALL_PRIORITIES, priorityLabel } from '@/components/issues/PriorityIcon'
 import { TypeIcon } from '@/components/issues/TypeIcon'
 import { StatusBadge } from '@/components/issues/StatusBadge'
 import { useToast } from '@/providers/ToastProvider'
-import { useProjectSettings } from '@/contexts/ProjectSettingsContext'
+import { useProjectSettings, formatSettingLabel } from '@/contexts/ProjectSettingsContext'
 import type { ProjectStatus } from '@/types/project-settings.types'
 import type { IssueWithDetails, IssueUpdate } from '@/types/issue.types'
 import type { ProjectMemberPreview } from '@/services/projects.service'
@@ -35,7 +36,7 @@ import type { Epic } from '@/types/epic.types'
 import { updateIssueAction, deleteIssueAction } from '../actions'
 import { useRefreshOnFocus } from '@/lib/hooks/useRefreshOnFocus'
 import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh'
-import { formatDate } from '@/lib/utils/dates'
+
 
 interface KanbanBoardProps {
   projectId: string
@@ -47,24 +48,34 @@ interface KanbanBoardProps {
   epics: Epic[]
 }
 
+interface BoardFilters {
+  sprints: string[]
+  assignees: string[]
+  labels: string[]
+  priorities: string[]
+  types: string[]
+}
+
+const EMPTY_FILTERS: BoardFilters = { sprints: [], assignees: [], labels: [], priorities: [], types: [] }
+
 export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initialIssues, sprints, members, epics }: KanbanBoardProps) {
   const router = useRouter()
   const { toast } = useToast()
-  const { statuses: projectStatuses, labels: projectLabels } = useProjectSettings()
+  const { statuses: projectStatuses, types: projectTypes, labels: projectLabels } = useProjectSettings()
   useRefreshOnFocus(() => setDetailTarget(null))
   useRealtimeRefresh(projectId)
 
-  const activeSprint = sprints.find((s) => s.status === 'active') ?? null
-
   const [issues, setIssues] = useState<IssueWithDetails[]>(initialIssues)
+  const [filters, setFilters] = useState<BoardFilters>(EMPTY_FILTERS)
+  const [searchQuery, setSearchQuery] = useState('')
 
-  // Sync when server re-fetches after router.refresh()
   useEffect(() => { setIssues(initialIssues) }, [initialIssues])
   useEffect(() => {
     if (!detailTarget) return
     const fresh = initialIssues.find((i) => i.id === detailTarget.id)
     if (fresh) setDetailTarget(fresh)
   }, [initialIssues])
+
   const [activeIssue, setActiveIssue] = useState<IssueWithDetails | null>(null)
   const [detailTarget, setDetailTarget] = useState<IssueWithDetails | null>(null)
   const [editTarget, setEditTarget] = useState<IssueWithDetails | null>(null)
@@ -75,6 +86,65 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
+
+  // ── Filtering ───────────────────────────────────────────────────────────────
+
+  const hasFilters = Object.values(filters).some((v) => v.length > 0)
+
+  const boardIssues = useMemo(() => {
+    return issues.filter((issue) => {
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase()
+        if (!issue.title.toLowerCase().includes(q) && !issue.key.toLowerCase().includes(q)) return false
+      }
+      if (filters.sprints.length > 0 && !filters.sprints.includes(issue.sprint_id ?? '__none__')) return false
+      if (filters.assignees.length > 0 && !filters.assignees.includes(issue.assignee_id ?? '__unassigned__')) return false
+      if (filters.labels.length > 0 && !filters.labels.some((id) => issue.labels?.some((l) => l.id === id))) return false
+      if (filters.priorities.length > 0 && !filters.priorities.includes(issue.priority)) return false
+      if (filters.types.length > 0 && !filters.types.includes(issue.type)) return false
+      return true
+    })
+  }, [issues, filters, searchQuery])
+
+  const issuesByStatus = useMemo(() =>
+    projectStatuses.reduce<Record<string, IssueWithDetails[]>>((acc, s) => {
+      acc[s.name] = boardIssues.filter((i) => i.status === s.name)
+      return acc
+    }, {}),
+  [projectStatuses, boardIssues])
+
+  // ── Active filter chips ─────────────────────────────────────────────────────
+
+  type FilterChipDef = { key: string; label: string; field: keyof BoardFilters; value: string }
+
+  const activeChips = useMemo<FilterChipDef[]>(() => {
+    const chips: FilterChipDef[] = []
+    filters.sprints.forEach((v) => {
+      const s = v === '__none__' ? { name: 'No sprint' } : sprints.find((sp) => sp.id === v)
+      if (s) chips.push({ key: `sprint-${v}`, label: s.name, field: 'sprints', value: v })
+    })
+    filters.assignees.forEach((v) => {
+      const label = v === '__unassigned__' ? 'Unassigned' : (members.find((m) => m.user_id === v)?.profile?.full_name ?? v)
+      chips.push({ key: `assignee-${v}`, label, field: 'assignees', value: v })
+    })
+    filters.labels.forEach((v) => {
+      const l = projectLabels.find((lb) => lb.id === v)
+      if (l) chips.push({ key: `label-${v}`, label: l.name, field: 'labels', value: v })
+    })
+    filters.priorities.forEach((v) => {
+      chips.push({ key: `priority-${v}`, label: priorityLabel(v as IssueWithDetails['priority']), field: 'priorities', value: v })
+    })
+    filters.types.forEach((v) => {
+      chips.push({ key: `type-${v}`, label: formatSettingLabel(v), field: 'types', value: v })
+    })
+    return chips
+  }, [filters, sprints, members, projectLabels])
+
+  function removeChip(field: keyof BoardFilters, value: string) {
+    setFilters((prev) => ({ ...prev, [field]: prev[field].filter((v) => v !== value) }))
+  }
+
+  // ── DnD ─────────────────────────────────────────────────────────────────────
 
   function handleDragStart({ active }: DragStartEvent) {
     const issue = issues.find((i) => i.id === active.id)
@@ -100,7 +170,7 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
       if (error) { toast(error, 'error'); setIssues(initialIssues) }
       else router.refresh()
     },
-    [issues, projectId, initialIssues, toast, router]
+    [issues, projectId, initialIssues, toast, router, projectStatuses]
   )
 
   async function handleEdit(data: IssueUpdate) {
@@ -126,60 +196,81 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
     setDeleteLoading(false)
   }
 
-  const boardIssues = activeSprint
-    ? issues.filter((i) => i.sprint_id === activeSprint.id)
-    : issues
-
-  const issuesByStatus = projectStatuses.reduce<Record<string, IssueWithDetails[]>>(
-    (acc, s) => {
-      acc[s.name] = boardIssues.filter((i) => i.status === s.name)
-      return acc
-    },
-    {}
-  )
-
-  const doneCount = activeSprint ? boardIssues.filter((i) => i.status === 'done').length : 0
-  const totalCount = boardIssues.length
-
   return (
     <>
+      {/* Toolbar — outside DndContext to avoid pointer event conflicts */}
+      <div className="mx-6 mt-4 mb-0 flex items-center gap-3 flex-wrap">
+        {/* Search */}
+        <div className="relative">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search tickets..."
+            className="pl-8 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 w-52"
+          />
+        </div>
+
+        {/* Assignee avatar bubbles */}
+        {members.length > 0 && (
+          <AssigneeAvatars
+            members={members}
+            activeIds={filters.assignees}
+            onToggle={(userId) =>
+              setFilters((prev) => ({
+                ...prev,
+                assignees: prev.assignees.includes(userId)
+                  ? prev.assignees.filter((id) => id !== userId)
+                  : [...prev.assignees, userId],
+              }))
+            }
+          />
+        )}
+
+        {/* Filter button */}
+        <JiraFilterButton
+          filters={filters}
+          onChange={setFilters}
+          sprints={sprints}
+          members={members}
+          types={projectTypes}
+          labels={projectLabels}
+          priorities={ALL_PRIORITIES}
+          hasFilters={hasFilters}
+        />
+      </div>
+
+      {activeChips.length > 0 && (
+        <div className="mx-6 mt-2 flex items-center gap-1.5 flex-wrap">
+          {activeChips.map((chip) => (
+            <span
+              key={chip.key}
+              className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full"
+            >
+              {chip.label}
+              <button onClick={() => removeChip(chip.field, chip.value)} className="hover:text-blue-900 ml-0.5">
+                <X size={10} />
+              </button>
+            </span>
+          ))}
+          <button
+            onClick={() => setFilters(EMPTY_FILTERS)}
+            className="text-xs text-gray-400 hover:text-red-500 transition-colors px-1"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
+
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        {/* Sprint banner */}
-        {activeSprint ? (
-          <div className="mx-6 mt-4 mb-0 rounded-xl border border-green-200 bg-green-50 px-4 py-3 flex items-center gap-4">
-            <span className="flex items-center gap-1.5 text-xs font-semibold text-green-700 uppercase tracking-wide">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500" />
-              Active Sprint
-            </span>
-            <span className="font-semibold text-sm text-gray-800">{activeSprint.name}</span>
-            {activeSprint.start_date && activeSprint.end_date && (
-              <span className="text-xs text-gray-400">
-                {formatDate(activeSprint.start_date)} – {formatDate(activeSprint.end_date)}
-              </span>
-            )}
-            {totalCount > 0 && (
-              <div className="flex items-center gap-2 ml-auto">
-                <div className="h-1.5 w-24 rounded-full bg-green-200 overflow-hidden">
-                  <div
-                    className="h-full bg-green-500 rounded-full transition-all"
-                    style={{ width: `${Math.round((doneCount / totalCount) * 100)}%` }}
-                  />
-                </div>
-                <span className="text-xs text-gray-500">{doneCount}/{totalCount} done</span>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="mx-6 mt-4 mb-0 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-xs text-gray-400">
-            No active sprint — showing all issues. Start a sprint from the{' '}
-            <a href="backlog" className="text-blue-500 hover:underline">Backlog</a>.
-          </div>
-        )}
+
+        {/* Board columns */}
         <div className="flex gap-3 px-6 py-4 overflow-x-auto pb-8 items-stretch">
           {projectStatuses.map((s) => (
             <KanbanColumn
@@ -241,6 +332,371 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
   )
 }
 
+// ── AssigneeAvatars ───────────────────────────────────────────────────────────
+
+const MAX_AVATAR_VISIBLE = 5
+
+function AssigneeAvatars({
+  members, activeIds, onToggle,
+}: {
+  members: ProjectMemberPreview[]
+  activeIds: string[]
+  onToggle: (userId: string) => void
+}) {
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!dropdownOpen) return
+    function onClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setDropdownOpen(false)
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [dropdownOpen])
+
+  const visible = members.slice(0, MAX_AVATAR_VISIBLE)
+  const overflow = members.length - MAX_AVATAR_VISIBLE
+  const unassignedActive = activeIds.includes('__unassigned__')
+
+  return (
+    <div className="flex items-center">
+      {/* Unassigned bubble */}
+      <button
+        type="button"
+        onClick={() => onToggle('__unassigned__')}
+        title="Unassigned"
+        className={cn(
+          'relative h-7 w-7 rounded-full border-2 bg-gray-100 flex items-center justify-center shrink-0 transition-all',
+          unassignedActive
+            ? 'border-blue-500 ring-2 ring-blue-400 ring-offset-1'
+            : 'border-white hover:border-blue-300'
+        )}
+        style={{ zIndex: members.length + 2 }}
+      >
+        <User size={13} className="text-gray-500" />
+      </button>
+
+      {/* Visible member avatars */}
+      {visible.map((m, i) => {
+        const isActive = activeIds.includes(m.user_id)
+        const initials = m.profile?.full_name
+          ? m.profile.full_name.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase()
+          : '?'
+        return (
+          <button
+            key={m.user_id}
+            type="button"
+            onClick={() => onToggle(m.user_id)}
+            title={m.profile?.full_name ?? m.user_id}
+            className={cn(
+              'relative h-7 w-7 rounded-full border-2 bg-blue-500 flex items-center justify-center shrink-0 transition-all',
+              isActive
+                ? 'border-blue-500 ring-2 ring-blue-400 ring-offset-1'
+                : 'border-white hover:border-blue-300'
+            )}
+            style={{ marginLeft: '-6px', zIndex: isActive ? MAX_AVATAR_VISIBLE + 1 : MAX_AVATAR_VISIBLE - i }}
+          >
+            {m.profile?.avatar_url ? (
+              <img src={m.profile.avatar_url} className="h-full w-full rounded-full object-cover" alt="" />
+            ) : (
+              <span className="text-[10px] font-bold text-white">{initials}</span>
+            )}
+          </button>
+        )
+      })}
+
+      {/* Overflow bubble — always shown; opens full member list dropdown */}
+      <div ref={dropdownRef} className="relative" style={{ marginLeft: '-6px' }}>
+        <button
+          type="button"
+          onClick={() => setDropdownOpen((o) => !o)}
+          title="All assignees"
+          className={cn(
+            'h-7 rounded-full border-2 px-1.5 bg-gray-100 flex items-center justify-center shrink-0 transition-all',
+            dropdownOpen ? 'border-blue-400' : 'border-white hover:border-blue-300'
+          )}
+          style={{ minWidth: '28px' }}
+        >
+          <span className="text-[10px] font-bold text-gray-500">
+            {overflow > 0 ? `+${overflow}` : '···'}
+          </span>
+        </button>
+
+        {dropdownOpen && (
+          <div className="absolute left-0 top-full mt-2 z-50 bg-white rounded-xl border border-gray-200 shadow-2xl w-56 max-h-80 overflow-y-auto">
+            <p className="px-3 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-100 sticky top-0 bg-white">
+              Assignees
+            </p>
+            {/* Unassigned row */}
+            <button
+              type="button"
+              onClick={() => onToggle('__unassigned__')}
+              className={cn(
+                'flex items-center gap-2.5 w-full px-3 py-2 text-sm text-left transition-colors',
+                unassignedActive ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50'
+              )}
+            >
+              <span className={cn(
+                'h-4 w-4 rounded border-2 flex items-center justify-center shrink-0',
+                unassignedActive ? 'bg-blue-600 border-blue-600' : 'border-gray-300'
+              )}>
+                {unassignedActive && <span className="text-white text-[9px] font-bold">✓</span>}
+              </span>
+              <div className="h-5 w-5 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center shrink-0">
+                <User size={10} className="text-gray-500" />
+              </div>
+              <span className="truncate">Unassigned</span>
+            </button>
+            {/* All members */}
+            {members.map((m) => {
+              const isActive = activeIds.includes(m.user_id)
+              const initials = m.profile?.full_name
+                ? m.profile.full_name.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase()
+                : '?'
+              return (
+                <button
+                  key={m.user_id}
+                  type="button"
+                  onClick={() => onToggle(m.user_id)}
+                  className={cn(
+                    'flex items-center gap-2.5 w-full px-3 py-2 text-sm text-left transition-colors',
+                    isActive ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50'
+                  )}
+                >
+                  <span className={cn(
+                    'h-4 w-4 rounded border-2 flex items-center justify-center shrink-0',
+                    isActive ? 'bg-blue-600 border-blue-600' : 'border-gray-300'
+                  )}>
+                    {isActive && <span className="text-white text-[9px] font-bold">✓</span>}
+                  </span>
+                  {m.profile?.avatar_url ? (
+                    <img src={m.profile.avatar_url} className="h-5 w-5 rounded-full object-cover shrink-0" alt="" />
+                  ) : (
+                    <div className="h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
+                      <span className="text-[8px] font-bold text-white">{initials}</span>
+                    </div>
+                  )}
+                  <span className="truncate">{m.profile?.full_name ?? m.user_id}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── JiraFilterButton ──────────────────────────────────────────────────────────
+
+type FilterFieldId = 'sprints' | 'assignees' | 'labels' | 'priorities' | 'types'
+
+interface FieldDef {
+  id: FilterFieldId
+  label: string
+  options: { value: string; label: string; color?: string; avatarUrl?: string | null }[]
+}
+
+function JiraFilterButton({
+  filters, onChange, sprints, members, types, labels, priorities, hasFilters,
+}: {
+  filters: BoardFilters
+  onChange: (f: BoardFilters) => void
+  sprints: Sprint[]
+  members: ProjectMemberPreview[]
+  types: import('@/types/project-settings.types').ProjectIssueType[]
+  labels: import('@/types/project-settings.types').ProjectLabel[]
+  priorities: string[]
+  hasFilters: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const [activeField, setActiveField] = useState<FilterFieldId>('sprints')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [open])
+
+  const fields: FieldDef[] = [
+    {
+      id: 'sprints',
+      label: 'Sprint',
+      options: [
+        { value: '__none__', label: 'No sprint' },
+        ...sprints.map((s) => ({ value: s.id, label: s.name })),
+      ],
+    },
+    {
+      id: 'assignees',
+      label: 'Assignee',
+      options: [
+        { value: '__unassigned__', label: 'Unassigned' },
+        ...members.map((m) => ({
+          value: m.user_id,
+          label: m.profile?.full_name ?? m.user_id,
+          avatarUrl: m.profile?.avatar_url ?? null,
+        })),
+      ],
+    },
+    ...(labels.length > 0 ? [{
+      id: 'labels' as FilterFieldId,
+      label: 'Labels',
+      options: labels.map((l) => ({ value: l.id, label: l.name, color: l.color })),
+    }] : []),
+    {
+      id: 'priorities',
+      label: 'Priority',
+      options: priorities.map((p) => ({ value: p, label: priorityLabel(p as IssueWithDetails['priority']) })),
+    },
+    {
+      id: 'types',
+      label: 'Work type',
+      options: types.map((t) => ({ value: t.name, label: formatSettingLabel(t.name) })),
+    },
+  ]
+
+  const currentField = fields.find((f) => f.id === activeField) ?? fields[0]
+
+  function toggle(field: FilterFieldId, value: string) {
+    const current = filters[field]
+    onChange({
+      ...filters,
+      [field]: current.includes(value) ? current.filter((v) => v !== value) : [...current, value],
+    })
+  }
+
+  const totalActive = Object.values(filters).reduce((sum, arr) => sum + arr.length, 0)
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          'flex items-center gap-2 px-3 py-2.5 text-sm font-medium rounded-xl border transition-colors',
+          hasFilters
+            ? 'bg-blue-50 border-blue-300 text-blue-700'
+            : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300 hover:text-gray-900'
+        )}
+      >
+        <SlidersHorizontal size={14} />
+        Filter
+        {totalActive > 0 && (
+          <span className="bg-blue-600 text-white rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none">
+            {totalActive}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full mt-2 z-40 bg-white rounded-xl border border-gray-200 shadow-2xl flex overflow-hidden"
+          style={{ minWidth: 420 }}
+        >
+          {/* Left: field list */}
+          <div className="w-44 border-r border-gray-100 py-1 bg-gray-50">
+            <p className="px-3 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Filter by</p>
+            {fields.map((field) => {
+              const count = filters[field.id].length
+              const isActive = field.id === activeField
+              return (
+                <button
+                  key={field.id}
+                  onClick={() => setActiveField(field.id)}
+                  className={cn(
+                    'w-full flex items-center justify-between px-3 py-2 text-sm transition-colors',
+                    isActive
+                      ? 'bg-white text-blue-700 font-semibold border-r-2 border-blue-500'
+                      : 'text-gray-700 hover:bg-white'
+                  )}
+                >
+                  <span>{field.label}</span>
+                  <div className="flex items-center gap-1">
+                    {count > 0 && (
+                      <span className="bg-blue-600 text-white rounded-full px-1.5 text-[10px] font-bold leading-4">
+                        {count}
+                      </span>
+                    )}
+                    <ChevronRight size={12} className="text-gray-300" />
+                  </div>
+                </button>
+              )
+            })}
+            {/* Clear all */}
+            {totalActive > 0 && (
+              <div className="border-t border-gray-100 mt-1 px-3 py-2">
+                <button
+                  onClick={() => onChange(EMPTY_FILTERS)}
+                  className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+                >
+                  Clear all filters
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Right: options */}
+          <div className="flex-1 py-1 min-w-[220px]">
+            <p className="px-3 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+              {currentField.label}
+            </p>
+            <div className="max-h-64 overflow-y-auto">
+              {currentField.options.map((opt) => {
+                const checked = filters[currentField.id].includes(opt.value)
+                const initials = opt.label.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase()
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => toggle(currentField.id, opt.value)}
+                    className={cn(
+                      'w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors',
+                      checked ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50'
+                    )}
+                  >
+                    <span className={cn(
+                      'h-4 w-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors',
+                      checked ? 'bg-blue-600 border-blue-600' : 'border-gray-300'
+                    )}>
+                      {checked && <span className="text-white text-[9px] font-bold">✓</span>}
+                    </span>
+
+                    {/* Avatar (assignees) */}
+                    {'avatarUrl' in opt && (
+                      opt.avatarUrl ? (
+                        <img src={opt.avatarUrl} className="h-5 w-5 rounded-full object-cover shrink-0" alt="" />
+                      ) : (
+                        <div className="h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
+                          <span className="text-[8px] font-bold text-white">{initials}</span>
+                        </div>
+                      )
+                    )}
+
+                    {/* Color chip (labels) */}
+                    {opt.color ? (
+                      <span
+                        className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                        style={{ backgroundColor: opt.color + '22', color: opt.color }}
+                      >
+                        {opt.label}
+                      </span>
+                    ) : (
+                      <span className="truncate">{opt.label}</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Column ───────────────────────────────────────────────────────────────────
 
 function KanbanColumn({
@@ -257,19 +713,13 @@ function KanbanColumn({
       'flex flex-col w-[272px] shrink-0 rounded-xl border transition-colors',
       isOver ? 'border-blue-300 bg-blue-50' : 'border-gray-200 bg-gray-50'
     )}>
-      {/* Column header */}
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-200">
         <StatusBadge status={status.name} color={status.color ?? undefined} />
         <span className="ml-auto text-[11px] font-semibold text-gray-400 bg-white border border-gray-200 rounded-full px-1.5 py-0.5 leading-none">
           {issues.length}
         </span>
       </div>
-
-      {/* Cards area — grows with content */}
-      <div
-        ref={setNodeRef}
-        className="flex flex-col gap-2 p-2 min-h-[80px] flex-1"
-      >
+      <div ref={setNodeRef} className="flex flex-col gap-2 p-2 min-h-[80px] flex-1">
         {issues.map((issue) => (
           <KanbanCard key={issue.id} issue={issue} onClick={() => onCardClick(issue)} />
         ))}
