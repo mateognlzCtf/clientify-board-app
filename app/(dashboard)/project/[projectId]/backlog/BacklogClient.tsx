@@ -10,9 +10,10 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import {
   Plus, ChevronDown, ChevronRight, Play, CheckSquare,
-  Pencil, Trash2, Flag, Calendar, MoreHorizontal, GripVertical,
+  Pencil, Trash2, Flag, Calendar, MoreHorizontal, GripVertical, Search,
 } from 'lucide-react'
 import { JiraFilterButton, type FilterFieldDef } from '@/components/issues/JiraFilterButton'
+import { AssigneeAvatars } from '@/components/issues/AssigneeAvatars'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -68,6 +69,8 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues, spr
   }, [issues])
   const [draggingIssue, setDraggingIssue] = useState<IssueWithDetails | null>(null)
 
+  const [searchQuery, setSearchQuery] = useState('')
+
   // Filters
   const [filters, setFilters] = useState<Record<string, string[]>>({
     assignees: [], statuses: [], priorities: [], types: [], epics: [], labels: [],
@@ -77,6 +80,10 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues, spr
 
   const filteredIssues = useMemo(() => {
     return allIssues.filter((issue) => {
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase()
+        if (!issue.title.toLowerCase().includes(q) && !issue.key.toLowerCase().includes(q)) return false
+      }
       if (filters.assignees.length > 0 && !filters.assignees.includes(issue.assignee_id ?? '__unassigned__')) return false
       if (filters.statuses.length > 0 && !filters.statuses.includes(issue.status)) return false
       if (filters.priorities.length > 0 && !filters.priorities.includes(issue.priority)) return false
@@ -85,7 +92,7 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues, spr
       if (filters.labels.length > 0 && !filters.labels.some((id) => issue.labels?.some((l) => l.id === id))) return false
       return true
     })
-  }, [allIssues, filters])
+  }, [allIssues, filters, searchQuery])
 
   // Sprint modals
   const [sprintFormOpen, setSprintFormOpen] = useState(false)
@@ -323,8 +330,37 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues, spr
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="px-6 py-5 max-w-5xl mx-auto space-y-4">
 
-        {/* Filter bar */}
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* Toolbar */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Search */}
+          <div className="relative">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search tickets..."
+              className="pl-8 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 w-52"
+            />
+          </div>
+
+          {/* Assignee bubbles */}
+          {members.length > 0 && (
+            <AssigneeAvatars
+              members={members}
+              activeIds={filters.assignees}
+              onToggle={(userId) =>
+                setFilters((prev) => ({
+                  ...prev,
+                  assignees: prev.assignees.includes(userId)
+                    ? prev.assignees.filter((id) => id !== userId)
+                    : [...prev.assignees, userId],
+                }))
+              }
+            />
+          )}
+
+          {/* Filter */}
           <JiraFilterButton
             fields={[
               {

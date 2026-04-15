@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import { Plus, Search, Ticket, MessageSquare, GripVertical } from 'lucide-react'
+import { Plus, Search, Ticket, MessageSquare, GripVertical, Layers, ChevronDown, CircleDot, Zap, Users, Flag } from 'lucide-react'
 import { JiraFilterButton, type FilterFieldDef } from '@/components/issues/JiraFilterButton'
+import { AssigneeAvatars } from '@/components/issues/AssigneeAvatars'
 import {
   DndContext, DragOverlay, PointerSensor, useSensor, useSensors,
   type DragStartEvent, type DragEndEvent,
@@ -77,6 +78,7 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
 
   const [search, setSearch] = useState('')
   const [filters, setFilters] = useState<ActiveFilters>(initialFilters)
+  const [listGroupBy, setListGroupBy] = useState<'none' | 'status' | 'sprint' | 'assignee' | 'priority'>('none')
   const [createOpen, setCreateOpen] = useState(false)
   const [detailTarget, setDetailTarget] = useState<IssueWithDetails | null>(null)
   useEffect(() => {
@@ -125,6 +127,28 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
       return true
     })
   }, [localIssues, search, filters])
+
+  const groupedIssues = useMemo(() => {
+    if (listGroupBy === 'none') return null
+    const map = new Map<string, { label: string; issues: IssueWithDetails[] }>()
+    for (const issue of filtered) {
+      let key: string, label: string
+      if (listGroupBy === 'status') {
+        key = issue.status; label = formatSettingLabel(issue.status)
+      } else if (listGroupBy === 'sprint') {
+        key = issue.sprint_id ?? '__none__'
+        label = sprints.find((s) => s.id === issue.sprint_id)?.name ?? 'No sprint'
+      } else if (listGroupBy === 'assignee') {
+        key = issue.assignee_id ?? '__unassigned__'
+        label = issue.assignee?.full_name ?? 'Unassigned'
+      } else {
+        key = issue.priority; label = priorityLabel(issue.priority)
+      }
+      if (!map.has(key)) map.set(key, { label, issues: [] })
+      map.get(key)!.issues.push(issue)
+    }
+    return Array.from(map.values())
+  }, [filtered, listGroupBy, sprints])
 
   function handleDragStart({ active }: DragStartEvent) {
     setActiveIssue(localIssues.find((i) => i.id === active.id) ?? null)
@@ -219,6 +243,22 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
           />
         </div>
 
+        {/* Assignee bubbles */}
+        {members.length > 0 && (
+          <AssigneeAvatars
+            members={members}
+            activeIds={filters.assignees}
+            onToggle={(userId) =>
+              applyFilters({
+                ...filters,
+                assignees: filters.assignees.includes(userId)
+                  ? filters.assignees.filter((id) => id !== userId)
+                  : [...filters.assignees, userId],
+              })
+            }
+          />
+        )}
+
         {/* Filter button */}
         <JiraFilterButton
           fields={[
@@ -250,6 +290,8 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
           onChange={(v) => applyFilters({ statuses: v.statuses ?? [], priorities: v.priorities ?? [], types: v.types ?? [], assignees: v.assignees ?? [], labels: v.labels ?? [] })}
         />
 
+        {/* Group button */}
+        <ListGroupButton groupBy={listGroupBy} onChange={setListGroupBy} />
 
         <div className="ml-auto">
           <Button onClick={() => setCreateOpen(true)}>
@@ -286,6 +328,54 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
 
       {/* Table */}
       {filtered.length > 0 ? (
+        listGroupBy !== 'none' && groupedIssues ? (
+          <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+            <table className="w-full text-sm whitespace-nowrap">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50">
+                  <th className="w-8 px-2" />
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20">Type</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Key</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[200px]">Summary</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Parent</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Labels</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Status</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Comments</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Sprint</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Assignee</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Due date</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Priority</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Created</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Updated</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Reporter</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {groupedIssues.map((group) => (
+                  <>
+                    <tr key={`group-${group.label}`} className="bg-gray-50 border-y border-gray-100">
+                      <td colSpan={15} className="px-4 py-2">
+                        <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                          {group.label}
+                        </span>
+                        <span className="ml-2 text-xs text-gray-400">{group.issues.length}</span>
+                      </td>
+                    </tr>
+                    {group.issues.map((issue) => (
+                      <SortableIssueRow
+                        key={issue.id}
+                        issue={issue}
+                        sprints={sprints}
+                        onDetail={() => setDetailTarget(issue)}
+                        disableDrag
+                      />
+                    ))}
+                  </>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <SortableContext items={filtered.map((i) => i.id)} strategy={verticalListSortingStrategy}>
             <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
@@ -330,6 +420,7 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
             )}
           </DragOverlay>
         </DndContext>
+        )
       ) : issues.length === 0 ? (
         <EmptyState
           icon={<Ticket size={48} />}
@@ -403,13 +494,14 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
 // ── Sortable row ─────────────────────────────────────────────────────────────
 
 function SortableIssueRow({
-  issue, sprints, onDetail,
+  issue, sprints, onDetail, disableDrag,
 }: {
   issue: IssueWithDetails
   sprints: Sprint[]
   onDetail: () => void
+  disableDrag?: boolean
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: issue.id })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: issue.id, disabled: disableDrag })
   const style = { transform: CSS.Transform.toString(transform), transition }
   const sprint = sprints.find((s) => s.id === issue.sprint_id)
 
@@ -420,6 +512,9 @@ function SortableIssueRow({
       className={cn('hover:bg-gray-50 transition-colors', isDragging && 'opacity-40 bg-blue-50')}
     >
       <td className="px-2 py-3 w-8">
+        {disableDrag ? (
+          <span className="w-5 h-5 block" />
+        ) : (
         <button
           {...attributes}
           {...listeners}
@@ -428,6 +523,7 @@ function SortableIssueRow({
         >
           <GripVertical size={14} />
         </button>
+        )}
       </td>
       <td className="px-4 py-3"><TypeIcon type={issue.type} /></td>
       <td className="px-4 py-3 font-mono text-xs text-gray-400">{issue.key}</td>
@@ -515,6 +611,74 @@ function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }
       {label}
       <button onClick={onRemove} className="hover:text-blue-900 ml-0.5">×</button>
     </span>
+  )
+}
+
+// ── List Group Button ─────────────────────────────────────────────────────────
+
+type ListGroupBy = 'none' | 'status' | 'sprint' | 'assignee' | 'priority'
+
+const GROUP_OPTIONS: { value: ListGroupBy; label: string; icon: React.ReactNode }[] = [
+  { value: 'none', label: 'None', icon: <Layers size={14} /> },
+  { value: 'status', label: 'Status', icon: <CircleDot size={14} /> },
+  { value: 'sprint', label: 'Sprint', icon: <Zap size={14} /> },
+  { value: 'assignee', label: 'Assignee', icon: <Users size={14} /> },
+  { value: 'priority', label: 'Priority', icon: <Flag size={14} /> },
+]
+
+function ListGroupButton({ groupBy, onChange }: { groupBy: ListGroupBy; onChange: (v: ListGroupBy) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const active = GROUP_OPTIONS.find((o) => o.value === groupBy)!
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          'flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors',
+          groupBy !== 'none'
+            ? 'bg-blue-50 border-blue-300 text-blue-700'
+            : 'border-gray-300 text-gray-600 bg-white hover:bg-gray-50'
+        )}
+      >
+        <Layers size={14} />
+        Group
+        {groupBy !== 'none' && <span className="text-blue-500">: {active.label}</span>}
+        <ChevronDown size={13} className={cn('transition-transform', open && 'rotate-180')} />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full mt-1.5 z-30 bg-white rounded-xl border border-gray-200 shadow-xl w-44 py-1.5">
+          <p className="px-3 py-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Group by</p>
+          {GROUP_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => { onChange(opt.value); setOpen(false) }}
+              className={cn(
+                'flex items-center gap-2.5 w-full px-3 py-2 text-sm text-left transition-colors',
+                groupBy === opt.value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'
+              )}
+            >
+              <span className={cn(groupBy === opt.value ? 'text-blue-500' : 'text-gray-400')}>{opt.icon}</span>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
