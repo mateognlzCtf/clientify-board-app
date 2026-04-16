@@ -79,7 +79,17 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
   const [search, setSearch] = useState('')
   const [filters, setFilters] = useState<ActiveFilters>(initialFilters)
   const [listGroupBy, setListGroupBy] = useState<'none' | 'status' | 'sprint' | 'assignee' | 'priority'>('none')
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [createOpen, setCreateOpen] = useState(false)
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setCreateOpen(true)
+      const params = new URLSearchParams(searchParams.toString())
+      params.delete('new')
+      const qs = params.toString()
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+    }
+  }, [searchParams])
   const [detailTarget, setDetailTarget] = useState<IssueWithDetails | null>(null)
   useEffect(() => {
     if (!detailTarget) return
@@ -130,24 +140,28 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
 
   const groupedIssues = useMemo(() => {
     if (listGroupBy === 'none') return null
-    const map = new Map<string, { label: string; issues: IssueWithDetails[] }>()
+    const map = new Map<string, { key: string; label: string; issues: IssueWithDetails[] }>()
     for (const issue of filtered) {
       let key: string, label: string
       if (listGroupBy === 'status') {
         key = issue.status; label = formatSettingLabel(issue.status)
       } else if (listGroupBy === 'sprint') {
         key = issue.sprint_id ?? '__none__'
-        label = sprints.find((s) => s.id === issue.sprint_id)?.name ?? 'No sprint'
+        label = sprints.find((s) => s.id === issue.sprint_id)?.name ?? 'Backlog'
       } else if (listGroupBy === 'assignee') {
         key = issue.assignee_id ?? '__unassigned__'
         label = issue.assignee?.full_name ?? 'Unassigned'
       } else {
         key = issue.priority; label = priorityLabel(issue.priority)
       }
-      if (!map.has(key)) map.set(key, { label, issues: [] })
+      if (!map.has(key)) map.set(key, { key, label, issues: [] })
       map.get(key)!.issues.push(issue)
     }
-    return Array.from(map.values())
+    const groups = Array.from(map.values())
+    if (listGroupBy === 'sprint') {
+      groups.sort((a, b) => a.key === '__none__' ? 1 : b.key === '__none__' ? -1 : 0)
+    }
+    return groups
   }, [filtered, listGroupBy, sprints])
 
   function handleDragStart({ active }: DragStartEvent) {
@@ -167,6 +181,47 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
     await Promise.all(
       reordered.map((issue, idx) => updateIssueAction(projectId, issue.id, { position: idx }))
     )
+  }
+
+  async function handleGroupedDragEnd({ active, over }: DragEndEvent) {
+    setActiveIssue(null)
+    if (!over || active.id === over.id || !groupedIssues) return
+    const sourceGroup = groupedIssues.find((g) => g.issues.some((i) => i.id === active.id))
+    const targetGroup = groupedIssues.find((g) => g.issues.some((i) => i.id === over.id))
+    if (!sourceGroup || !targetGroup) return
+
+    if (sourceGroup.key === targetGroup.key) {
+      // Reorder within same group
+      const oldIndex = sourceGroup.issues.findIndex((i) => i.id === active.id)
+      const newIndex = targetGroup.issues.findIndex((i) => i.id === over.id)
+      const reordered = arrayMove(sourceGroup.issues, oldIndex, newIndex)
+      setLocalIssues((prev) => {
+        const groupIds = new Set(sourceGroup.issues.map((i) => i.id))
+        const rest = prev.filter((i) => !groupIds.has(i.id))
+        return [...rest, ...reordered]
+      })
+      await Promise.all(reordered.map((issue, idx) => updateIssueAction(projectId, issue.id, { position: idx })))
+    } else {
+      // Move to different group — update the grouped field
+      const patch: IssueUpdate = {}
+      if (listGroupBy === 'status') {
+        const targetStatus = projectStatuses.find((s) => s.name === targetGroup.key)
+        if (targetStatus?.requires_pause_reason) {
+          toast('Open the ticket and fill in Pause reason before moving to this status.', 'error')
+          return
+        }
+        patch.status = targetGroup.key as IssueWithDetails['status']
+      } else if (listGroupBy === 'sprint') {
+        patch.sprint_id = targetGroup.key === '__none__' ? null : targetGroup.key
+      } else if (listGroupBy === 'assignee') {
+        patch.assignee_id = targetGroup.key === '__unassigned__' ? null : targetGroup.key
+      } else if (listGroupBy === 'priority') {
+        patch.priority = targetGroup.key as IssueWithDetails['priority']
+      }
+      setLocalIssues((prev) => prev.map((i) => i.id === active.id ? { ...i, ...patch } : i))
+      const { error } = await updateIssueAction(projectId, active.id as string, patch)
+      if (error) { toast(error, 'error'); router.refresh() }
+    }
   }
 
   async function handleCreate(data: IssueCreate) {
@@ -292,13 +347,6 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
 
         {/* Group button */}
         <ListGroupButton groupBy={listGroupBy} onChange={setListGroupBy} />
-
-        <div className="ml-auto">
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus size={15} />
-            New ticket
-          </Button>
-        </div>
       </div>
 
       {/* Active filter chips */}
@@ -329,52 +377,86 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
       {/* Table */}
       {filtered.length > 0 ? (
         listGroupBy !== 'none' && groupedIssues ? (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-            <table className="w-full text-sm whitespace-nowrap">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50">
-                  <th className="w-8 px-2" />
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20">Type</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Key</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[200px]">Summary</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Parent</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Labels</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Status</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Comments</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Sprint</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Assignee</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Due date</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Priority</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Created</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Updated</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Reporter</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {groupedIssues.map((group) => (
-                  <>
-                    <tr key={`group-${group.label}`} className="bg-gray-50 border-y border-gray-100">
-                      <td colSpan={15} className="px-4 py-2">
-                        <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                          {group.label}
-                        </span>
-                        <span className="ml-2 text-xs text-gray-400">{group.issues.length}</span>
-                      </td>
-                    </tr>
-                    {group.issues.map((issue) => (
-                      <SortableIssueRow
-                        key={issue.id}
-                        issue={issue}
-                        sprints={sprints}
-                        onDetail={() => setDetailTarget(issue)}
-                        disableDrag
-                      />
-                    ))}
-                  </>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleGroupedDragEnd}>
+            <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+              <table className="w-full text-sm whitespace-nowrap">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50">
+                    <th className="w-8 px-2" />
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20">Type</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Key</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[200px]">Summary</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Parent</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Labels</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Status</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Comments</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Sprint</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Assignee</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Due date</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Priority</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Created</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Updated</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Reporter</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {groupedIssues.map((group) => {
+                    const collapsed = collapsedGroups.has(group.key)
+                    return (
+                      <SortableContext key={group.key} items={group.issues.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+                        <>
+                          <tr className="bg-gray-50 border-y border-gray-100">
+                            <td colSpan={15} className="px-3 py-2">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setCollapsedGroups((prev) => {
+                                    const next = new Set(prev)
+                                    if (next.has(group.key)) next.delete(group.key)
+                                    else next.add(group.key)
+                                    return next
+                                  })}
+                                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                                >
+                                  <ChevronDown size={14} className={cn('transition-transform', collapsed && '-rotate-90')} />
+                                </button>
+                                <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                                  {group.label}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setCreateOpen(true)}
+                                  className="ml-1 flex items-center justify-center h-4 w-4 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                  title="Create ticket"
+                                >
+                                  <Plus size={12} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                          {!collapsed && group.issues.map((issue) => (
+                            <SortableIssueRow
+                              key={issue.id}
+                              issue={issue}
+                              sprints={sprints}
+                              onDetail={() => setDetailTarget(issue)}
+                            />
+                          ))}
+                        </>
+                      </SortableContext>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <DragOverlay dropAnimation={null}>
+              {activeIssue && (
+                <div className="bg-white border border-blue-300 rounded-lg shadow-xl px-4 py-2 text-sm font-medium text-gray-800 opacity-95">
+                  {activeIssue.key} — {activeIssue.title}
+                </div>
+              )}
+            </DragOverlay>
+          </DndContext>
         ) : (
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <SortableContext items={filtered.map((i) => i.id)} strategy={verticalListSortingStrategy}>

@@ -53,12 +53,14 @@ export function IssueDetail({
   onUpdated,
 }: IssueDetailProps) {
   const { toast } = useToast()
-  const { statuses: projectStatuses, labels: projectLabels } = useProjectSettings()
+  const { statuses: projectStatuses, types: projectTypes, labels: projectLabels } = useProjectSettings()
 
   // Select / date fields
   const [status, setStatus] = useState<IssueStatus>(issue.status)
   const [priority, setPriority] = useState<IssuePriority>(issue.priority)
   const [assigneeId, setAssigneeId] = useState<string>(issue.assignee_id ?? '')
+  const [sprintId, setSprintId] = useState<string>(issue.sprint_id ?? '')
+  const [type, setType] = useState<string>(issue.type)
   const [dueDateRaw, setDueDateRaw] = useState<string>(issue.due_date ?? '')
   const [startDateRaw, setStartDateRaw] = useState<string>(issue.start_date ?? '')
   const [saving, setSaving] = useState<string | null>(null)
@@ -77,6 +79,25 @@ export function IssueDetail({
   const [epicId, setEpicId] = useState<string>(issue.epic_id ?? '')
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>(issue.labels?.map((l) => l.id) ?? [])
 
+  // Sync all local state when issue prop changes (realtime update from another tab).
+  // Skip inline-text fields that the user is actively editing to avoid clobbering drafts.
+  useEffect(() => {
+    setStatus(issue.status)
+    setPriority(issue.priority)
+    setAssigneeId(issue.assignee_id ?? '')
+    setSprintId(issue.sprint_id ?? '')
+    setType(issue.type)
+    setDueDateRaw(issue.due_date ?? '')
+    setStartDateRaw(issue.start_date ?? '')
+    setEpicId(issue.epic_id ?? '')
+    setSelectedLabelIds(issue.labels?.map((l) => l.id) ?? [])
+    if (editingField !== 'title') { setTitle(issue.title); setDraftTitle(issue.title) }
+    if (editingField !== 'description') setDescriptionRaw(issue.description ?? '')
+    if (editingField !== 'slack_thread') { setSlackThread(issue.slack_thread ?? ''); setDraftSlack(issue.slack_thread ?? '') }
+    if (editingField !== 'pause_reason') { setPauseReason(issue.pause_reason ?? ''); setDraftPause(issue.pause_reason ?? '') }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [issue])
+
   // Rich editor ref
   const getDescriptionJson = useRef<(() => JSONContent) | null>(null)
 
@@ -89,6 +110,13 @@ export function IssueDetail({
   const createdAt = formatLocalDate(issue.created_at)
   const updatedAt = formatLocalDate(issue.updated_at)
 
+  // Broadcast a patch to other tabs of the same browser via BroadcastChannel
+  function broadcastPatch(patch: object) {
+    const bc = new BroadcastChannel(`issue-sync-${issue.id}`)
+    bc.postMessage(patch)
+    bc.close()
+  }
+
   // ── select/date handler ───────────────────────────────────────────────────
   async function handleChange(field: string, value: string) {
     const targetStatus = projectStatuses.find((s) => s.name === value)
@@ -98,10 +126,12 @@ export function IssueDetail({
     }
     const patch: IssueUpdate = { [field]: value || null }
     setSaving(field)
-    const prev = { status, priority, assigneeId, dueDateRaw, startDateRaw }
+    const prev = { status, priority, assigneeId, sprintId, type, dueDateRaw, startDateRaw }
     if (field === 'status') setStatus(value as IssueStatus)
     if (field === 'priority') setPriority(value as IssuePriority)
     if (field === 'assignee_id') setAssigneeId(value)
+    if (field === 'sprint_id') setSprintId(value)
+    if (field === 'type') setType(value)
     if (field === 'due_date') setDueDateRaw(value)
     if (field === 'start_date') setStartDateRaw(value)
     if (field === 'epic_id') setEpicId(value)
@@ -110,9 +140,11 @@ export function IssueDetail({
     if (error) {
       toast(error, 'error')
       setStatus(prev.status); setPriority(prev.priority)
-      setAssigneeId(prev.assigneeId); setDueDateRaw(prev.dueDateRaw); setStartDateRaw(prev.startDateRaw)
+      setAssigneeId(prev.assigneeId); setSprintId(prev.sprintId); setType(prev.type)
+      setDueDateRaw(prev.dueDateRaw); setStartDateRaw(prev.startDateRaw)
     } else {
       onUpdated(patch)
+      broadcastPatch(patch)
     }
   }
 
@@ -127,7 +159,9 @@ export function IssueDetail({
       toast(error, 'error')
       setSelectedLabelIds(prev)
     } else {
-      onUpdated({ label_ids: newIds } as Partial<IssueUpdate>)
+      const updatedLabels = projectLabels.filter((l) => newIds.includes(l.id))
+      onUpdated({ labels: updatedLabels } as unknown as Partial<IssueUpdate>)
+      broadcastPatch({ labels: updatedLabels })
     }
   }
 
@@ -161,6 +195,7 @@ export function IssueDetail({
       if (field === 'slack_thread') setSlackThread(draftSlack)
       if (field === 'pause_reason') setPauseReason(draftPause)
       onUpdated(patch)
+      broadcastPatch(patch)
     }
     setEditingField(null)
   }
@@ -185,7 +220,7 @@ export function IssueDetail({
   }, [descriptionRaw])
 
   const assignee = members.find((m) => m.user_id === assigneeId)?.profile
-  const currentSprint = sprints?.find((s) => s.id === issue.sprint_id) ?? null
+  const currentSprint = sprints?.find((s) => s.id === sprintId) ?? null
 
   return (
     <div className="flex gap-0 min-h-0">
@@ -521,22 +556,47 @@ export function IssueDetail({
             {/* Sprint */}
             <div className="px-3 py-2.5 space-y-1">
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Sprint</p>
-              {currentSprint ? (
-                <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
-                  currentSprint.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-600'
-                }`}>
-                  {currentSprint.name}
-                  {currentSprint.status === 'active' && <span className="text-[9px]">●</span>}
-                </span>
-              ) : (
-                <span className="text-xs text-gray-400">Backlog</span>
-              )}
+              <div className="relative">
+                <select
+                  value={sprintId}
+                  disabled={saving === 'sprint_id'}
+                  onChange={(e) => handleChange('sprint_id', e.target.value)}
+                  className="w-full appearance-none text-xs text-gray-700 px-2 py-1 rounded border border-gray-200 bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 pr-5 disabled:opacity-50"
+                >
+                  <option value="">Backlog</option>
+                  {sprints?.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}{s.status === 'active' ? ' (active)' : s.status === 'planning' ? ' (future)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">▾</span>
+              </div>
             </div>
 
             {/* Type */}
             <div className="px-3 py-2.5 space-y-1">
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Type</p>
-              <TypeIcon type={issue.type} showLabel />
+              <div className="relative inline-flex items-center">
+                <div className="flex items-center gap-1.5 text-sm px-2 py-1 rounded border border-gray-200 bg-white">
+                  <TypeIcon type={type} showLabel />
+                  <ChevronDown size={12} className="text-gray-400 opacity-60" />
+                </div>
+                <select
+                  value={type}
+                  disabled={saving === 'type'}
+                  onChange={(e) => handleChange('type', e.target.value)}
+                  className="absolute inset-0 w-full opacity-0 cursor-pointer disabled:cursor-default"
+                >
+                  {projectTypes.map((t) => (
+                    <option key={t.name} value={t.name}>{t.name}</option>
+                  ))}
+                  {/* Ensure current value always has a matching option to prevent spurious onChange */}
+                  {!projectTypes.some((t) => t.name.toLowerCase() === type.toLowerCase()) && (
+                    <option value={type}>{type}</option>
+                  )}
+                </select>
+              </div>
             </div>
 
           </div>

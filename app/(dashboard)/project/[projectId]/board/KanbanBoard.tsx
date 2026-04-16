@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import {
   DndContext,
   DragOverlay,
@@ -63,6 +63,8 @@ type GroupBy = 'none' | 'assignee' | 'epic'
 
 export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initialIssues, sprints, members, epics }: KanbanBoardProps) {
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const { toast } = useToast()
   const { statuses: projectStatuses, types: projectTypes, labels: projectLabels } = useProjectSettings()
   useRefreshOnFocus(() => setDetailTarget(null))
@@ -95,6 +97,16 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
   const [deleteTarget, setDeleteTarget] = useState<IssueWithDetails | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [createStatus, setCreateStatus] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setCreateStatus('')
+      const params = new URLSearchParams(searchParams.toString())
+      params.delete('new')
+      const qs = params.toString()
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+    }
+  }, [searchParams])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -444,7 +456,7 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
           <IssueForm
             mode="create"
             projectId={projectId}
-            defaultStatus={createStatus}
+            defaultStatus={createStatus || undefined}
             members={members}
             sprints={sprints}
             epics={epics}

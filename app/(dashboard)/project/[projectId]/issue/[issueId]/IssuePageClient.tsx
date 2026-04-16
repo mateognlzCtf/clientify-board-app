@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Link2, Check } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
@@ -8,6 +8,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { IssueDetail } from '@/components/issues/IssueDetail'
 import { IssueForm } from '@/components/issues/IssueForm'
 import { useToast } from '@/providers/ToastProvider'
+import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh'
 import { updateIssueAction, deleteIssueAction } from '../../actions'
 import type { IssueWithDetails, IssueUpdate } from '@/types/issue.types'
 import type { ProjectMemberPreview } from '@/services/projects.service'
@@ -30,6 +31,23 @@ export function IssuePageClient({ issue: initialIssue, projectId, currentUserId,
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteLoading, setDeleteLoading] = useState(false)
+
+  // Cross-browser / cross-device sync via Supabase Realtime → router.refresh()
+  useRealtimeRefresh(projectId)
+
+  // Sync state when server delivers fresh data after router.refresh()
+  useEffect(() => {
+    setIssue(initialIssue)
+  }, [initialIssue])
+
+  // Same-browser tab sync via BroadcastChannel (no Supabase auth needed, instant)
+  useEffect(() => {
+    const bc = new BroadcastChannel(`issue-sync-${initialIssue.id}`)
+    bc.onmessage = (e: MessageEvent<Partial<IssueWithDetails>>) => {
+      setIssue((prev) => ({ ...prev, ...e.data }))
+    }
+    return () => bc.close()
+  }, [initialIssue.id])
 
   async function handleEdit(data: IssueUpdate) {
     const { error } = await updateIssueAction(projectId, issue.id, data)

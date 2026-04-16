@@ -115,6 +115,20 @@ export function CommentSection({ issueId, projectId, currentUserId, members = []
   const membersRef = useRef(members)
   useEffect(() => { membersRef.current = members }, [members])
 
+  // Same-browser tab sync for comments via BroadcastChannel
+  useEffect(() => {
+    const bc = new BroadcastChannel(`comment-sync-${issueId}`)
+    bc.onmessage = (e: MessageEvent) => {
+      const msg = e.data as { type: 'add'; comment: CommentWithAuthor & { content: JSONContent } } | { type: 'delete'; id: string }
+      if (msg.type === 'add') {
+        setComments((prev) => prev.some((c) => c.id === msg.comment.id) ? prev : [...prev, msg.comment])
+      } else if (msg.type === 'delete') {
+        setComments((prev) => prev.filter((c) => c.id !== msg.id))
+      }
+    }
+    return () => bc.close()
+  }, [issueId])
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const extensions = useMemo(() => buildEditorExtensions(membersRef), [])
 
@@ -184,9 +198,14 @@ export function CommentSection({ issueId, projectId, currentUserId, members = []
       toast(error, 'error')
     } else if (data) {
       // Use local content for immediate display (server round-trip not needed).
-      setComments((prev) => [...prev, { ...data, content }])
+      const newComment = { ...data, content }
+      setComments((prev) => [...prev, newComment])
       editor.commands.clearContent()
       setEditorEmpty(true)
+      // Broadcast to other tabs in the same browser
+      const bc = new BroadcastChannel(`comment-sync-${issueId}`)
+      bc.postMessage({ type: 'add', comment: newComment })
+      bc.close()
     }
     setSubmitting(false)
   }
@@ -208,7 +227,12 @@ export function CommentSection({ issueId, projectId, currentUserId, members = []
               key={comment.id}
               comment={comment}
               currentUserId={currentUserId}
-              onDelete={(id) => setComments((prev) => prev.filter((c) => c.id !== id))}
+              onDelete={(id) => {
+              setComments((prev) => prev.filter((c) => c.id !== id))
+              const bc = new BroadcastChannel(`comment-sync-${issueId}`)
+              bc.postMessage({ type: 'delete', id })
+              bc.close()
+            }}
             />
           ))}
         </div>

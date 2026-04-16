@@ -170,9 +170,9 @@ const DEFAULT_STATUSES = [
 ]
 
 const DEFAULT_TYPES = [
-  { name: 'Task',    color: '#3b82f6', position: 0 },
-  { name: 'Bug',     color: '#ef4444', position: 1 },
-  { name: 'Feature', color: '#8b5cf6', position: 2 },
+  { name: 'Story', color: '#22c55e', position: 0 },
+  { name: 'Task',  color: '#3b82f6', position: 1 },
+  { name: 'Bug',   color: '#ef4444', position: 2 },
 ]
 
 export async function createProject(

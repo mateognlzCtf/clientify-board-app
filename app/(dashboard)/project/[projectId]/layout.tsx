@@ -9,6 +9,7 @@ import { getProjectLabels } from '@/services/project-labels.service'
 import { ProjectSettingsProvider } from '@/contexts/ProjectSettingsContext'
 import { ProjectNav } from '@/components/layout/ProjectNav'
 import { ProjectLayoutShell } from './ProjectLayoutShell'
+import { NewTicketHeaderButton } from './NewTicketHeaderButton'
 
 interface ProjectLayoutProps {
   children: React.ReactNode
@@ -51,6 +52,7 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
             — {project.description}
           </span>
         )}
+        <NewTicketHeaderButton />
       </div>
       <ProjectNav items={navItems} />
     </div>

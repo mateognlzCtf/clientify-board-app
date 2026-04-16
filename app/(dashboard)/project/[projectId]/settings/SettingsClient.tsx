@@ -158,7 +158,7 @@ function EpicsManager({
   async function handleCreate() {
     if (!newName.trim()) return
     setLoading(true)
-    const { data, error } = await createEpicSettingsAction(projectId, newName.trim(), newColor)
+    const { data, error } = await createEpicSettingsAction(projectId, newName.trim().toUpperCase(), newColor)
     setLoading(false)
     if (error || !data) { toast(error ?? 'Error', 'error'); return }
     setEpics((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
@@ -169,7 +169,7 @@ function EpicsManager({
   }
 
   async function handleUpdate(id: string) {
-    const { data, error } = await updateEpicSettingsAction(projectId, id, editName.trim(), editColor)
+    const { data, error } = await updateEpicSettingsAction(projectId, id, editName.trim().toUpperCase(), editColor)
     if (error || !data) { toast(error ?? 'Error', 'error'); return }
     setEpics((prev) => prev.map((e) => e.id === id ? data : e))
     setEditId(null)
@@ -195,7 +195,7 @@ function EpicsManager({
               <input
                 autoFocus
                 value={editName}
-                onChange={(e) => setEditName(e.target.value)}
+                onChange={(e) => setEditName(e.target.value.toUpperCase())}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleUpdate(epic.id); if (e.key === 'Escape') setEditId(null) }}
                 className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -223,7 +223,7 @@ function EpicsManager({
         <input type="color" value={newColor} onChange={(e) => setNewColor(e.target.value)} className="h-7 w-7 rounded cursor-pointer border border-gray-200 p-0.5" />
         <input
           value={newName}
-          onChange={(e) => setNewName(e.target.value)}
+          onChange={(e) => setNewName(e.target.value.toUpperCase())}
           onKeyDown={(e) => { if (e.key === 'Enter') handleCreate() }}
           placeholder="New epic name…"
           className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-400"

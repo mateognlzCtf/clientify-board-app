@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import {
   DndContext, DragOverlay, useDroppable, useDraggable,
   PointerSensor, useSensor, useSensors,
@@ -50,6 +50,8 @@ interface Props {
 
 export function BacklogClient({ projectId, currentUserId, canDelete, issues, sprints: initialSprints, members, epics: initialEpics }: Props) {
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const { toast } = useToast()
   const { statuses: projectStatuses, types: projectTypes, labels: projectLabels } = useProjectSettings()
   useRefreshOnFocus(() => setDetailTarget(null))
@@ -102,6 +104,17 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues, spr
   const [startSprintTarget, setStartSprintTarget] = useState<Sprint | null>(null)
   const [startSprintLoading, setStartSprintLoading] = useState(false)
   const [completeSprintTarget, setCompleteSprintTarget] = useState<Sprint | null>(null)
+
+  // Open create modal when ?new=1 is in the URL
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setCreateIssueSprintId(null)
+      const params = new URLSearchParams(searchParams.toString())
+      params.delete('new')
+      const qs = params.toString()
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+    }
+  }, [searchParams])
 
   // Issue modals
   const [createIssueSprintId, setCreateIssueSprintId] = useState<string | null | undefined>(undefined)
@@ -574,8 +587,6 @@ function SprintSection({
 
   const isActive = sprint.status === 'active'
   const total = issues.length
-  const done = issues.filter((i) => i.status === 'done').length
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0
 
   const dateRange = [sprint.start_date, sprint.end_date]
     .filter(Boolean)
@@ -612,14 +623,6 @@ function SprintSection({
             )}
             <span className="text-xs text-gray-400">({total} work items)</span>
           </div>
-          {isActive && total > 0 && (
-            <div className="flex items-center gap-2 mt-1.5">
-              <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden max-w-[200px]">
-                <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
-              </div>
-              <span className="text-[11px] text-gray-400">{done}/{total} done</span>
-            </div>
-          )}
         </div>
 
         <div className="flex items-center gap-2 shrink-0">

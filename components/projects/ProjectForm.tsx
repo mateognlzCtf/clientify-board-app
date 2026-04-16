@@ -141,13 +141,15 @@ export function ProjectForm(props: ProjectFormProps) {
         <textarea
           id="project-desc"
           value={description}
-          onChange={(e) => setDescription(e.target.value)}
+          onChange={(e) => setDescription(e.target.value.slice(0, 120))}
           rows={3}
+          maxLength={120}
           placeholder="¿De qué trata este proyecto?"
           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none
                      focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
                      placeholder:text-gray-400"
         />
+        <p className="text-right text-xs text-gray-400 mt-1">{description.length}/120</p>
       </div>
 
       {/* Actions */}
