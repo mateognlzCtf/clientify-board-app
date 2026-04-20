@@ -2,12 +2,17 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { UserPlus, Crown, Shield, User, X } from 'lucide-react'
+import { UserPlus, Crown, Shield, User, X, Clock, Mail } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useToast } from '@/providers/ToastProvider'
 import { cn } from '@/lib/utils/cn'
-import type { ProjectMemberWithProfile, MemberRole } from '@/types/member.types'
-import { inviteMemberAction, updateMemberRoleAction, removeMemberAction } from '../member-actions'
+import type { ProjectMemberWithProfile, MemberRole, PendingInvitation } from '@/types/member.types'
+import {
+  inviteMemberAction,
+  updateMemberRoleAction,
+  removeMemberAction,
+  cancelInvitationAction,
+} from '../member-actions'
 
 const ROLE_CONFIG: Record<MemberRole, { label: string; icon: React.ReactNode; className: string }> = {
   owner: { label: 'Owner', icon: <Crown size={12} />, className: 'text-yellow-600 bg-yellow-50' },
@@ -28,9 +33,17 @@ interface MembersClientProps {
   currentUserRole: MemberRole
   members: ProjectMemberWithProfile[]
   availableProfiles: ProfileOption[]
+  pendingInvitations: PendingInvitation[]
 }
 
-export function MembersClient({ projectId, currentUserId, currentUserRole, members, availableProfiles }: MembersClientProps) {
+export function MembersClient({
+  projectId,
+  currentUserId,
+  currentUserRole,
+  members,
+  availableProfiles,
+  pendingInvitations,
+}: MembersClientProps) {
   const router = useRouter()
   const { toast } = useToast()
 
@@ -38,6 +51,7 @@ export function MembersClient({ projectId, currentUserId, currentUserRole, membe
   const [inviteRole, setInviteRole] = useState<MemberRole>('member')
   const [inviteLoading, setInviteLoading] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
+  const [cancellingId, setCancellingId] = useState<string | null>(null)
 
   const filteredProfiles = availableProfiles.filter((p) => {
     if (!email.trim()) return true
@@ -56,7 +70,7 @@ export function MembersClient({ projectId, currentUserId, currentUserRole, membe
     if (error) {
       toast(error, 'error')
     } else {
-      toast('Member added successfully.', 'success')
+      toast('Invitation sent successfully.', 'success')
       setEmail('')
       setShowDropdown(false)
       router.refresh()
@@ -84,6 +98,26 @@ export function MembersClient({ projectId, currentUserId, currentUserRole, membe
     }
   }
 
+  async function handleCancelInvitation(invitationId: string) {
+    setCancellingId(invitationId)
+    const { error } = await cancelInvitationAction(projectId, invitationId)
+    if (error) {
+      toast(error, 'error')
+    } else {
+      toast('Invitation cancelled.', 'success')
+      router.refresh()
+    }
+    setCancellingId(null)
+  }
+
+  function formatExpiry(expiresAt: string) {
+    const diff = new Date(expiresAt).getTime() - Date.now()
+    const days = Math.ceil(diff / (1000 * 60 * 60 * 24))
+    if (days <= 0) return 'Expired'
+    if (days === 1) return 'Expires tomorrow'
+    return `Expires in ${days} days`
+  }
+
   return (
     <div className="p-6 max-w-2xl space-y-6">
       {/* Invite form */}
@@ -91,7 +125,7 @@ export function MembersClient({ projectId, currentUserId, currentUserRole, membe
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h2 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
             <UserPlus size={15} />
-            Add member
+            Invite member
           </h2>
           <form onSubmit={handleInvite} className="flex gap-3 flex-wrap">
             <div className="relative flex-1 min-w-[200px]">
@@ -145,9 +179,12 @@ export function MembersClient({ projectId, currentUserId, currentUserRole, membe
               <option value="admin">Admin</option>
             </select>
             <Button type="submit" loading={inviteLoading}>
-              Add
+              Invite
             </Button>
           </form>
+          <p className="mt-3 text-xs text-gray-400">
+            If the email has no account, they will receive a link to sign up and join the project.
+          </p>
         </div>
       )}
 
@@ -168,7 +205,6 @@ export function MembersClient({ projectId, currentUserId, currentUserRole, membe
 
             return (
               <li key={member.id} className="flex items-center gap-3 px-5 py-3">
-                {/* Avatar */}
                 <div className="h-8 w-8 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
                   {member.profile.avatar_url ? (
                     <img src={member.profile.avatar_url} className="h-8 w-8 rounded-full object-cover" alt="" />
@@ -179,7 +215,6 @@ export function MembersClient({ projectId, currentUserId, currentUserRole, membe
                   )}
                 </div>
 
-                {/* Info */}
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 truncate">
                     {member.profile.full_name ?? member.profile.email}
@@ -188,7 +223,6 @@ export function MembersClient({ projectId, currentUserId, currentUserRole, membe
                   <p className="text-xs text-gray-400 truncate">{member.profile.email}</p>
                 </div>
 
-                {/* Role */}
                 {canEdit ? (
                   <select
                     value={member.role}
@@ -205,7 +239,6 @@ export function MembersClient({ projectId, currentUserId, currentUserRole, membe
                   </span>
                 )}
 
-                {/* Remove */}
                 {canEdit && (
                   <button
                     onClick={() => handleRemove(member.id, member.profile.full_name ?? member.profile.email)}
@@ -220,6 +253,52 @@ export function MembersClient({ projectId, currentUserId, currentUserRole, membe
           })}
         </ul>
       </div>
+
+      {/* Pending invitations */}
+      {canManage && pendingInvitations.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
+            <h2 className="text-sm font-semibold text-gray-700">
+              Pending invitations <span className="text-gray-400 font-normal">({pendingInvitations.length})</span>
+            </h2>
+          </div>
+
+          <ul className="divide-y divide-gray-50">
+            {pendingInvitations.map((inv) => {
+              const roleConfig = ROLE_CONFIG[inv.role]
+              return (
+                <li key={inv.id} className="flex items-center gap-3 px-5 py-3">
+                  <div className="h-8 w-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
+                    <Mail size={14} className="text-gray-400" />
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{inv.email}</p>
+                    <p className="text-xs text-gray-400 flex items-center gap-1">
+                      <Clock size={10} />
+                      {formatExpiry(inv.expires_at)}
+                    </p>
+                  </div>
+
+                  <span className={cn('inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full', roleConfig.className)}>
+                    {roleConfig.icon}
+                    {roleConfig.label}
+                  </span>
+
+                  <button
+                    onClick={() => handleCancelInvitation(inv.id)}
+                    disabled={cancellingId === inv.id}
+                    className="text-gray-300 hover:text-gray-500 transition-colors disabled:opacity-40"
+                    title="Cancel invitation"
+                  >
+                    <X size={15} />
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }

@@ -526,6 +526,50 @@ export type Database = {
           }
         ]
       }
+      pending_invitations: {
+        Row: {
+          id: string
+          project_id: string
+          email: string
+          role: string
+          token: string
+          invited_by: string
+          created_at: string
+          expires_at: string
+          accepted_at: string | null
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          email: string
+          role?: string
+          token?: string
+          invited_by: string
+          created_at?: string
+          expires_at?: string
+          accepted_at?: string | null
+        }
+        Update: {
+          id?: string
+          accepted_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'pending_invitations_project_id_fkey'
+            columns: ['project_id']
+            isOneToOne: false
+            referencedRelation: 'projects'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'pending_invitations_invited_by_fkey'
+            columns: ['invited_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          }
+        ]
+      }
       attachments: {
         Row: {
           id: string

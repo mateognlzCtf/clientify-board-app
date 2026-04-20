@@ -1,7 +1,7 @@
 import { Resend } from 'resend'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
-const FROM = process.env.RESEND_FROM_EMAIL ?? 'Clientify Projects <board@notifications.clientify.com>'
+const FROM = process.env.RESEND_FROM_EMAIL ?? 'Clientify Projects <onboarding@resend.dev>'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
 
 function guard() {
@@ -121,21 +121,14 @@ export async function sendProjectInviteNotification({
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111;padding:32px 24px">
         <p style="font-size:22px;font-weight:700;margin:0 0 24px">👋 Hola, ${firstName}</p>
-
         <p style="font-size:15px;color:#333;margin:0 0 8px">
           <strong>${invitedByName}</strong> te invitó a unirte al proyecto
           <strong>${projectName}</strong> en Clientify Projects.
         </p>
-
-        <p style="font-size:14px;color:#666;margin:0 0 28px">
-          Clientify Projects es una herramienta de gestión de proyectos y tickets para equipos.
-        </p>
-
         <a href="${projectUrl}"
            style="display:inline-block;padding:10px 24px;background:#3b82f6;color:#fff;border-radius:6px;text-decoration:none;font-size:14px;font-weight:600">
-          Aceptar invitación
+          Ver proyecto
         </a>
-
         <hr style="margin:32px 0;border:none;border-top:1px solid #eee" />
         <p style="font-size:12px;color:#aaa;margin:0">Clientify Projects · no responder a este correo</p>
       </div>
@@ -143,6 +136,50 @@ export async function sendProjectInviteNotification({
   })
   if (error) console.error('[email] Resend error:', error)
   else console.log('[email] Project invite sent to', toEmail, '| id:', data?.id)
+}
+
+export async function sendPendingInviteEmail({
+  toEmail,
+  invitedByName,
+  projectName,
+  inviteToken,
+}: {
+  toEmail: string
+  invitedByName: string
+  projectName: string
+  inviteToken: string
+}) {
+  if (!guard()) return
+  const inviteUrl = `${APP_URL}/accept-invite?token=${inviteToken}`
+  const { data, error } = await resend.emails.send({
+    from: FROM,
+    to: toEmail,
+    subject: `${invitedByName} te invitó a unirte a ${projectName}`,
+    html: `
+      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111;padding:32px 24px">
+        <p style="font-size:22px;font-weight:700;margin:0 0 24px">👋 Hola</p>
+        <p style="font-size:15px;color:#333;margin:0 0 8px">
+          <strong>${invitedByName}</strong> te invitó a unirte al proyecto
+          <strong>${projectName}</strong> en Clientify Projects.
+        </p>
+        <p style="font-size:14px;color:#666;margin:0 0 28px">
+          Clientify Projects es una herramienta de gestión de proyectos y tickets para equipos.
+          Crea tu cuenta gratuita para aceptar la invitación.
+        </p>
+        <a href="${inviteUrl}"
+           style="display:inline-block;padding:10px 24px;background:#3b82f6;color:#fff;border-radius:6px;text-decoration:none;font-size:14px;font-weight:600">
+          Aceptar invitación
+        </a>
+        <p style="font-size:12px;color:#aaa;margin:28px 0 0">
+          Este enlace expira en 7 días. Si no esperabas esta invitación, puedes ignorar este correo.
+        </p>
+        <hr style="margin:24px 0;border:none;border-top:1px solid #eee" />
+        <p style="font-size:12px;color:#aaa;margin:0">Clientify Projects · no responder a este correo</p>
+      </div>
+    `,
+  })
+  if (error) console.error('[email] Resend error:', error)
+  else console.log('[email] Pending invite sent to', toEmail, '| id:', data?.id)
 }
 
 export async function sendMentionNotification({

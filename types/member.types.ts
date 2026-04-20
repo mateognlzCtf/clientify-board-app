@@ -23,3 +23,15 @@ export interface MemberInvite {
   email: string
   role: MemberRole
 }
+
+export interface PendingInvitation {
+  id: string
+  project_id: string
+  email: string
+  role: MemberRole
+  token: string
+  invited_by: string
+  created_at: string
+  expires_at: string
+  accepted_at: string | null
+}

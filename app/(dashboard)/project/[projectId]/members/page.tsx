@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { getProjectMembersWithProfile } from '@/services/members.service'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getProjectMembersWithProfile, getPendingInvitations } from '@/services/members.service'
 import { MembersClient } from './MembersClient'
 import type { MemberRole } from '@/types/member.types'
 
@@ -21,6 +22,9 @@ export default async function MembersPage({ params }: Props) {
   const currentMember = members.find((m) => m.user_id === user.id)
   if (!currentMember) redirect('/dashboard')
 
+  const adminSupabase = createAdminClient()
+  const { data: pendingInvitations } = await getPendingInvitations(adminSupabase, projectId)
+
   const memberIds = members.map((m) => m.user_id)
   const { data: availableProfiles } = await supabase
     .from('profiles')
@@ -35,6 +39,7 @@ export default async function MembersPage({ params }: Props) {
       currentUserRole={currentMember.role as MemberRole}
       members={members}
       availableProfiles={availableProfiles ?? []}
+      pendingInvitations={pendingInvitations ?? []}
     />
   )
 }
