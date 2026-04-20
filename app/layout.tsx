@@ -1,12 +1,13 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Poppins, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import { AuthProvider } from '@/providers/AuthProvider'
 import { ToastProvider } from '@/providers/ToastProvider'
 import { SuppressSupabaseLockError } from '@/components/SuppressSupabaseLockError'
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
+const poppins = Poppins({
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-poppins',
   subsets: ['latin'],
 })
 
@@ -31,7 +32,7 @@ export default function RootLayout({
   return (
     <html
       lang="es"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${poppins.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-gray-50 text-gray-900">
         <SuppressSupabaseLockError />

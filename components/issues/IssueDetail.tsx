@@ -595,7 +595,7 @@ export function IssueDetail({
                     className="flex items-center gap-2 flex-1 min-w-0 text-left hover:opacity-75 transition-opacity"
                   >
                     <TypeIcon type={linked.type} />
-                    <span className="font-mono text-xs text-gray-400 shrink-0">{linked.key}</span>
+                    <span className={`font-mono text-xs text-gray-400 shrink-0 ${projectStatuses.find(s => s.name === linked.status)?.is_completed ? 'line-through' : ''}`}>{linked.key}</span>
                     <span className="flex-1 text-sm text-gray-700 truncate">{linked.title}</span>
                     <PriorityIcon priority={linked.priority as never} />
                     {linked.assignee ? (
