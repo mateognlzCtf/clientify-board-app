@@ -45,6 +45,29 @@ export type Database = {
         }
         Relationships: []
       }
+      issue_links: {
+        Row: {
+          id: string
+          source_issue_id: string
+          target_issue_id: string
+          created_by: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          source_issue_id: string
+          target_issue_id: string
+          created_by: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          source_issue_id?: string
+          target_issue_id?: string
+          created_by?: string
+        }
+        Relationships: []
+      }
       projects: {
         Row: {
           id: string
@@ -377,6 +400,7 @@ export type Database = {
           epic_id: string | null
           slack_thread: string | null
           pause_reason: string | null
+          resolved_at: string | null
           created_at: string
           updated_at: string
         }
@@ -398,6 +422,7 @@ export type Database = {
           epic_id?: string | null
           slack_thread?: string | null
           pause_reason?: string | null
+          resolved_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -419,6 +444,7 @@ export type Database = {
           epic_id?: string | null
           slack_thread?: string | null
           pause_reason?: string | null
+          resolved_at?: string | null
           updated_at?: string
         }
         Relationships: [

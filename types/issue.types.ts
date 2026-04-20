@@ -22,6 +22,7 @@ export interface Issue {
   epic_id: string | null
   slack_thread: string | null
   pause_reason: string | null
+  resolved_at: string | null
   created_at: string
   updated_at: string
 }
@@ -57,6 +58,7 @@ export interface IssueUpdate {
   epic_id?: string | null
   slack_thread?: string | null
   pause_reason?: string | null
+  resolved_at?: string | null
   label_ids?: string[]
 }
 

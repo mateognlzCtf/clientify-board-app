@@ -29,6 +29,7 @@ type RawIssue = {
   epic_id: string | null
   slack_thread: string | null
   pause_reason: string | null
+  resolved_at: string | null
   created_at: string
   updated_at: string
   assignee: { id: string; full_name: string | null; avatar_url: string | null } | null
@@ -77,6 +78,7 @@ export async function getIssues(
     start_date: row.start_date,
     slack_thread: row.slack_thread,
     pause_reason: row.pause_reason,
+    resolved_at: row.resolved_at ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at,
     assignee: row.assignee,
@@ -128,6 +130,7 @@ export async function getIssueById(
       epic_id: row.epic_id,
       slack_thread: row.slack_thread,
       pause_reason: row.pause_reason,
+      resolved_at: row.resolved_at ?? null,
       created_at: row.created_at,
       updated_at: row.updated_at,
       assignee: row.assignee,
@@ -216,6 +219,7 @@ export async function updateIssue(
       ...(data.start_date !== undefined && { start_date: data.start_date }),
       ...(data.slack_thread !== undefined && { slack_thread: data.slack_thread }),
       ...(data.pause_reason !== undefined && { pause_reason: data.pause_reason }),
+      ...(data.resolved_at !== undefined && { resolved_at: data.resolved_at }),
     })
     .eq('id', issueId)
     .select()

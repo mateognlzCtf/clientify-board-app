@@ -71,7 +71,19 @@ export async function updateIssueAction(
     .eq('id', issueId)
     .single()
 
-  const result = await updateIssueService(supabase, issueId, data)
+  // Auto-set resolved_at when status changes to/from a completed status
+  let enrichedData = data
+  if (data.status !== undefined) {
+    const { data: statusConfig } = await supabase
+      .from('project_statuses')
+      .select('is_completed')
+      .eq('project_id', projectId)
+      .eq('name', data.status)
+      .single()
+    enrichedData = { ...data, resolved_at: statusConfig?.is_completed ? new Date().toISOString() : null }
+  }
+
+  const result = await updateIssueService(supabase, issueId, enrichedData)
 
   if (!result.error && result.data) {
     revalidatePath(`/project/${projectId}/list`)

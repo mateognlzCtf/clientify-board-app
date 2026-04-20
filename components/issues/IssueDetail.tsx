@@ -1,17 +1,23 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect } from 'react'
-import { Trash2, Clock, ExternalLink, ChevronDown, Check, X, Tag } from 'lucide-react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { Trash2, Clock, ExternalLink, ChevronDown, Check, X, Tag, Plus, Link2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { TypeIcon } from '@/components/issues/TypeIcon'
 import { CommentSection, ImageLightbox } from '@/components/issues/CommentSection'
 import { RichTextEditor, renderDescriptionHTML, parseDescription } from '@/components/issues/RichTextEditor'
-import { priorityLabel, ALL_PRIORITIES } from '@/components/issues/PriorityIcon'
+import { PriorityIcon, priorityLabel, ALL_PRIORITIES } from '@/components/issues/PriorityIcon'
 import { useProjectSettings, formatSettingLabel } from '@/contexts/ProjectSettingsContext'
 import { formatLocalDate } from '@/lib/utils/dates'
 import { useToast } from '@/providers/ToastProvider'
 import { updateIssueAction, setIssueLabelsAction } from '@/app/(dashboard)/project/[projectId]/actions'
 import { uploadCommentImageAction } from '@/app/(dashboard)/project/[projectId]/comment-actions'
+import {
+  getIssueLinksAction, getProjectIssuesForLinkAction, createIssueLinkAction, deleteIssueLinkAction,
+} from '@/app/(dashboard)/project/[projectId]/link-actions'
+import type { IssueLinkOption } from '@/app/(dashboard)/project/[projectId]/link-actions'
+import type { LinkedIssuePreview } from '@/services/issue-links.service'
+import { StatusBadge } from '@/components/issues/StatusBadge'
 import type { IssueWithDetails, IssueStatus, IssuePriority, IssueUpdate } from '@/types/issue.types'
 import type { ProjectLabel } from '@/types/project-settings.types'
 import type { ProjectMemberPreview } from '@/services/projects.service'
@@ -65,6 +71,16 @@ export function IssueDetail({
   const [startDateRaw, setStartDateRaw] = useState<string>(issue.start_date ?? '')
   const [saving, setSaving] = useState<string | null>(null)
 
+  // Linked work items
+  const [showLinkedSection, setShowLinkedSection] = useState(false)
+  const linkInputRef = useRef<HTMLInputElement>(null)
+  const [linkedIssues, setLinkedIssues] = useState<LinkedIssuePreview[]>([])
+  const [linkSearch, setLinkSearch] = useState('')
+  const [showLinkDropdown, setShowLinkDropdown] = useState(false)
+  const [projectIssues, setProjectIssues] = useState<IssueLinkOption[]>([])
+  const [projectIssuesLoaded, setProjectIssuesLoaded] = useState(false)
+  const [recentlyViewed, setRecentlyViewed] = useState<IssueLinkOption[]>([])
+
   // Inline text fields
   const [editingField, setEditingField] = useState<string | null>(null)
   const [title, setTitle] = useState(issue.title)
@@ -91,12 +107,66 @@ export function IssueDetail({
     setStartDateRaw(issue.start_date ?? '')
     setEpicId(issue.epic_id ?? '')
     setSelectedLabelIds(issue.labels?.map((l) => l.id) ?? [])
+    setResolvedAt(issue.resolved_at ?? null)
     if (editingField !== 'title') { setTitle(issue.title); setDraftTitle(issue.title) }
     if (editingField !== 'description') setDescriptionRaw(issue.description ?? '')
     if (editingField !== 'slack_thread') { setSlackThread(issue.slack_thread ?? ''); setDraftSlack(issue.slack_thread ?? '') }
     if (editingField !== 'pause_reason') { setPauseReason(issue.pause_reason ?? ''); setDraftPause(issue.pause_reason ?? '') }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [issue])
+
+  // Fetch linked issues on mount; auto-open section if links exist
+  useEffect(() => {
+    getIssueLinksAction(issue.id).then((links) => {
+      setLinkedIssues(links)
+      if (links.length > 0) setShowLinkedSection(true)
+    })
+  }, [issue.id])
+
+  // Re-fetch linked issues when user returns to this tab (status may have changed in another tab)
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') {
+        getIssueLinksAction(issue.id).then(setLinkedIssues)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [issue.id])
+
+  // Track recently viewed in localStorage
+  useEffect(() => {
+    try {
+      const storageKey = `rv_${projectId}`
+      const stored: IssueLinkOption[] = JSON.parse(localStorage.getItem(storageKey) ?? '[]')
+      const current: IssueLinkOption = { id: issue.id, key: issue.key, title: issue.title, status: issue.status, type: issue.type }
+      const updated = [current, ...stored.filter((i) => i.id !== issue.id)].slice(0, 10)
+      localStorage.setItem(storageKey, JSON.stringify(updated))
+      setRecentlyViewed(updated.filter((i) => i.id !== issue.id))
+    } catch { /* ignore */ }
+  }, [issue.id])
+
+  async function loadProjectIssues() {
+    if (projectIssuesLoaded) return
+    const issues = await getProjectIssuesForLinkAction(projectId, issue.id)
+    setProjectIssues(issues)
+    setProjectIssuesLoaded(true)
+  }
+
+  async function handleAddLink(target: IssueLinkOption) {
+    setShowLinkDropdown(false)
+    setLinkSearch('')
+    const { error } = await createIssueLinkAction(issue.id, target.id)
+    if (error) { toast(error, 'error'); return }
+    const fresh = await getIssueLinksAction(issue.id)
+    setLinkedIssues(fresh)
+  }
+
+  async function handleRemoveLink(linkId: string) {
+    const { error } = await deleteIssueLinkAction(linkId)
+    if (error) { toast(error, 'error'); return }
+    setLinkedIssues((prev) => prev.filter((l) => l.link_id !== linkId))
+  }
 
   // Rich editor ref
   const getDescriptionJson = useRef<(() => JSONContent) | null>(null)
@@ -107,6 +177,8 @@ export function IssueDetail({
   })()
   const currentStatusCompleted = projectStatuses.find(s => s.name === status)?.is_completed ?? false
   const isOverdue = !!dueDateRaw && dueDateRaw < todayStr && !currentStatusCompleted
+
+  const [resolvedAt, setResolvedAt] = useState<string | null>(issue.resolved_at ?? null)
 
   const createdAt = formatLocalDate(issue.created_at)
   const updatedAt = formatLocalDate(issue.updated_at)
@@ -128,7 +200,13 @@ export function IssueDetail({
     const patch: IssueUpdate = { [field]: value || null }
     setSaving(field)
     const prev = { status, priority, assigneeId, sprintId, type, dueDateRaw, startDateRaw }
-    if (field === 'status') setStatus(value as IssueStatus)
+    if (field === 'status') {
+      setStatus(value as IssueStatus)
+      const isCompleted = projectStatuses.find((s) => s.name === value)?.is_completed ?? false
+      const newResolvedAt = isCompleted ? new Date().toISOString() : null
+      setResolvedAt(newResolvedAt)
+      patch.resolved_at = newResolvedAt
+    }
     if (field === 'priority') setPriority(value as IssuePriority)
     if (field === 'assignee_id') setAssigneeId(value)
     if (field === 'sprint_id') setSprintId(value)
@@ -221,6 +299,20 @@ export function IssueDetail({
   }, [descriptionRaw])
 
   const assignee = members.find((m) => m.user_id === assigneeId)?.profile
+
+  const linkedIds = useMemo(() => new Set(linkedIssues.map((l) => l.issue_id)), [linkedIssues])
+
+  const recentlyViewedIds = useMemo(() => new Set(recentlyViewed.map((i) => i.id)), [recentlyViewed])
+
+  const filteredLinkOptions = useMemo(() => {
+    const q = linkSearch.trim().toLowerCase()
+    const allAvailable = [
+      ...recentlyViewed,
+      ...projectIssues.filter((i) => !recentlyViewedIds.has(i.id)),
+    ].filter((i) => !linkedIds.has(i.id))
+    if (!q) return allAvailable
+    return allAvailable.filter((i) => i.key.toLowerCase().includes(q) || i.title.toLowerCase().includes(q))
+  }, [linkSearch, projectIssues, recentlyViewed, recentlyViewedIds, linkedIds])
   const currentSprint = sprints?.find((s) => s.id === sprintId) ?? null
 
   return (
@@ -277,6 +369,15 @@ export function IssueDetail({
             />
           )}
         />
+
+        {/* Link work item toggle */}
+        <button
+          onClick={() => { setShowLinkedSection(true); setTimeout(() => linkInputRef.current?.focus(), 0) }}
+          className="flex items-center gap-1 text-xs text-gray-400 hover:text-blue-500 transition-colors -mt-2"
+        >
+          <Plus size={12} />
+          <span>Link work item</span>
+        </button>
 
         {/* Key details */}
         <div className="rounded-lg border border-gray-200 overflow-hidden">
@@ -423,6 +524,105 @@ export function IssueDetail({
 
           </div>
         </div>
+
+        {/* Linked work items */}
+        {showLinkedSection && (
+          <div className="rounded-lg border border-gray-200">
+            <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex items-center gap-2">
+              <Link2 size={12} className="text-gray-400" />
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Linked work items</p>
+            </div>
+            <div className="px-4 py-3 space-y-2">
+              <div className="relative">
+                <input
+                  ref={linkInputRef}
+                  type="text"
+                  value={linkSearch}
+                  onChange={(e) => { setLinkSearch(e.target.value); setShowLinkDropdown(true) }}
+                  onFocus={() => { setShowLinkDropdown(true); loadProjectIssues() }}
+                  onBlur={() => setTimeout(() => setShowLinkDropdown(false), 150)}
+                  placeholder="Type, search or paste URL"
+                  autoComplete="off"
+                  className="w-full text-sm px-3 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder:text-gray-400"
+                />
+                {showLinkDropdown && (
+                  <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    {filteredLinkOptions.length === 0 ? (
+                      <p className="px-3 py-2 text-sm text-gray-400 italic">
+                        {projectIssuesLoaded ? 'No issues found' : 'Loading…'}
+                      </p>
+                    ) : (
+                      filteredLinkOptions.map((opt, idx) => {
+                        const isFirstNonRecent = !linkSearch.trim() && !recentlyViewedIds.has(opt.id) &&
+                          (idx === 0 || recentlyViewedIds.has(filteredLinkOptions[idx - 1].id))
+                        const isFirstRecent = !linkSearch.trim() && idx === 0 && recentlyViewedIds.has(opt.id)
+                        return (
+                          <div key={opt.id}>
+                            {isFirstRecent && (
+                              <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-100">
+                                Recently viewed
+                              </div>
+                            )}
+                            {isFirstNonRecent && (
+                              <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-100">
+                                All issues
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              onMouseDown={() => handleAddLink(opt)}
+                              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 text-left"
+                            >
+                              <TypeIcon type={opt.type} />
+                              <span className="font-mono text-xs text-gray-400 shrink-0">{opt.key}</span>
+                              <span className="flex-1 text-sm text-gray-700 truncate">{opt.title}</span>
+                              <StatusBadge status={opt.status} color={projectStatuses.find((s) => s.name === opt.status)?.color ?? undefined} />
+                            </button>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {linkedIssues.map((linked) => (
+                <div key={linked.link_id} className="flex items-center gap-2 py-1.5 border-b border-gray-50 last:border-0 group">
+                  <a
+                    href={`/project/${projectId}/issue/${linked.issue_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 flex-1 min-w-0 text-left hover:opacity-75 transition-opacity"
+                  >
+                    <TypeIcon type={linked.type} />
+                    <span className="font-mono text-xs text-gray-400 shrink-0">{linked.key}</span>
+                    <span className="flex-1 text-sm text-gray-700 truncate">{linked.title}</span>
+                    <PriorityIcon priority={linked.priority as never} />
+                    {linked.assignee ? (
+                      linked.assignee.avatar_url
+                        ? <img src={linked.assignee.avatar_url} alt="" className="h-5 w-5 rounded-full object-cover shrink-0" title={linked.assignee.full_name ?? ''} />
+                        : <div className="h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center shrink-0" title={linked.assignee.full_name ?? ''}>
+                            <span className="text-[8px] font-bold text-white">
+                              {linked.assignee.full_name?.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase() ?? '?'}
+                            </span>
+                          </div>
+                    ) : (
+                      <div className="h-5 w-5 rounded-full bg-gray-100 border border-gray-200 shrink-0" title="Unassigned" />
+                    )}
+                    <StatusBadge status={linked.status} color={projectStatuses.find((s) => s.name === linked.status)?.color ?? undefined} />
+                  </a>
+                  <button
+                    onClick={() => handleRemoveLink(linked.link_id)}
+                    className="text-gray-300 hover:text-gray-500 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+                    title="Remove link"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Actions */}
         {canDelete && (
@@ -607,6 +807,9 @@ export function IssueDetail({
         <div className="space-y-1.5 pt-1">
           <span className="flex items-center gap-1 text-xs text-gray-400"><Clock size={11} />Created {createdAt}</span>
           <span className="flex items-center gap-1 text-xs text-gray-400"><Clock size={11} />Updated {updatedAt}</span>
+          {resolvedAt && (
+            <span className="flex items-center gap-1 text-xs text-gray-400"><Clock size={11} />Resolved {formatLocalDate(resolvedAt)}</span>
+          )}
         </div>
       </div>
     </div>

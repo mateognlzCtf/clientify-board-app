@@ -787,8 +787,9 @@ function DraggableIssueRow({
     <div
       ref={setNodeRef}
       style={style}
+      onClick={() => onIssueClick(issue)}
       className={cn(
-        'group flex items-center gap-3 px-4 py-2 hover:bg-gray-50 transition-colors',
+        'group flex items-center gap-3 px-4 py-2 hover:bg-gray-50 transition-colors cursor-pointer',
         isDragging && 'opacity-40 bg-blue-50'
       )}
     >
@@ -796,6 +797,7 @@ function DraggableIssueRow({
       <button
         {...listeners}
         {...attributes}
+        onClick={(e) => e.stopPropagation()}
         className="text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing touch-none shrink-0"
         tabIndex={-1}
       >
@@ -804,12 +806,9 @@ function DraggableIssueRow({
 
       <TypeIcon type={issue.type} />
       <span className="font-mono text-[11px] text-gray-400 w-16 shrink-0">{issue.key}</span>
-      <button
-        onClick={() => onIssueClick(issue)}
-        className="flex-1 text-left text-sm text-gray-800 hover:text-blue-600 transition-colors truncate font-medium"
-      >
+      <span className="flex-1 text-left text-sm text-gray-800 font-medium truncate">
         {issue.title}
-      </button>
+      </span>
       {issue.epic && (
         <span
           className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 hidden sm:inline-flex"
@@ -853,7 +852,7 @@ function DraggableIssueRow({
         )}
 
         {/* Move menu */}
-        <div className="relative opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="relative opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
           <button
             onClick={() => setMenuOpen((o) => !o)}
             className="p-1 text-gray-400 hover:text-gray-700 rounded transition-colors"

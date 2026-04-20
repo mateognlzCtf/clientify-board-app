@@ -159,7 +159,16 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
     }
     const groups = Array.from(map.values())
     if (listGroupBy === 'sprint') {
-      groups.sort((a, b) => a.key === '__none__' ? 1 : b.key === '__none__' ? -1 : 0)
+      groups.sort((a, b) => {
+        if (a.key === '__none__') return 1
+        if (b.key === '__none__') return -1
+        const sa = sprints.find((s) => s.id === a.key)
+        const sb = sprints.find((s) => s.id === b.key)
+        const rank = (s: typeof sa) => s?.status === 'active' ? 0 : 1
+        const r = rank(sa) - rank(sb)
+        if (r !== 0) return r
+        return (sa?.start_date ?? '') < (sb?.start_date ?? '') ? -1 : 1
+      })
     }
     return groups
   }, [filtered, listGroupBy, sprints])
@@ -381,21 +390,20 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
             <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
               <table className="w-full text-sm whitespace-nowrap">
                 <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50">
-                    <th className="w-8 px-2" />
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20">Type</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Key</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[200px]">Summary</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Parent</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Labels</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Status</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Comments</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Sprint</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Assignee</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Due date</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Priority</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Created</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Updated</th>
+                  <tr className="border-b border-gray-200 bg-gray-50">
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28 border-r border-gray-200">Type</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24 border-r border-gray-200">Key</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[200px] border-r border-gray-200">Summary</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36 border-r border-gray-200">Parent</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36 border-r border-gray-200">Labels</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32 border-r border-gray-200">Status</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24 border-r border-gray-200">Comments</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32 border-r border-gray-200">Sprint</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32 border-r border-gray-200">Assignee</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28 border-r border-gray-200">Due date</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24 border-r border-gray-200">Priority</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28 border-r border-gray-200">Created</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28 border-r border-gray-200">Updated</th>
                     <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Reporter</th>
                   </tr>
                 </thead>
@@ -463,21 +471,20 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
             <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
               <table className="w-full text-sm whitespace-nowrap">
                 <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50">
-                    <th className="w-8 px-2" />
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20">Type</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Key</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[200px]">Summary</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Parent</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Labels</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Status</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Comments</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Sprint</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Assignee</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Due date</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Priority</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Created</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Updated</th>
+                  <tr className="border-b border-gray-200 bg-gray-50">
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28 border-r border-gray-200">Type</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24 border-r border-gray-200">Key</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[200px] border-r border-gray-200">Summary</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36 border-r border-gray-200">Parent</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36 border-r border-gray-200">Labels</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32 border-r border-gray-200">Status</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24 border-r border-gray-200">Comments</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32 border-r border-gray-200">Sprint</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32 border-r border-gray-200">Assignee</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28 border-r border-gray-200">Due date</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24 border-r border-gray-200">Priority</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28 border-r border-gray-200">Created</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28 border-r border-gray-200">Updated</th>
                     <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Reporter</th>
                   </tr>
                 </thead>
@@ -592,33 +599,33 @@ function SortableIssueRow({
     <tr
       ref={setNodeRef}
       style={style}
-      className={cn('hover:bg-gray-50 transition-colors', isDragging && 'opacity-40 bg-blue-50')}
+      onClick={onDetail}
+      className={cn('hover:bg-gray-50 transition-colors cursor-pointer', isDragging && 'opacity-40 bg-blue-50')}
     >
-      <td className="px-2 py-3 w-8">
-        {disableDrag ? (
-          <span className="w-5 h-5 block" />
-        ) : (
-        <button
-          {...attributes}
-          {...listeners}
-          className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 p-0.5 rounded"
-          tabIndex={-1}
-        >
-          <GripVertical size={14} />
-        </button>
-        )}
+      <td className="px-3 py-3 border-r border-gray-100" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2">
+          {disableDrag ? (
+            <span className="w-4 h-4 block shrink-0" />
+          ) : (
+            <button
+              {...attributes}
+              {...listeners}
+              className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 p-0.5 rounded shrink-0"
+              tabIndex={-1}
+            >
+              <GripVertical size={14} />
+            </button>
+          )}
+          <TypeIcon type={issue.type} />
+        </div>
       </td>
-      <td className="px-4 py-3"><TypeIcon type={issue.type} /></td>
-      <td className="px-4 py-3 font-mono text-xs text-gray-400">{issue.key}</td>
-      <td className="px-4 py-3 max-w-[260px]">
-        <button
-          onClick={onDetail}
-          className="text-left text-gray-900 hover:text-blue-600 font-medium transition-colors truncate block w-full"
-        >
+      <td className="px-4 py-3 font-mono text-xs text-gray-400 border-r border-gray-100 hover:text-blue-600 transition-colors">{issue.key}</td>
+      <td className="px-4 py-3 max-w-[260px] border-r border-gray-100">
+        <span className="text-left text-gray-900 font-medium truncate block w-full">
           {issue.title}
-        </button>
+        </span>
       </td>
-      <td className="px-4 py-3">
+      <td className="px-4 py-3 border-r border-gray-100">
         {issue.epic ? (
           <span
             className="text-[11px] font-semibold px-2 py-0.5 rounded-full truncate max-w-[130px] block"
@@ -630,7 +637,7 @@ function SortableIssueRow({
           <span className="text-gray-300 text-xs">—</span>
         )}
       </td>
-      <td className="px-4 py-3">
+      <td className="px-4 py-3 border-r border-gray-100">
         {issue.labels?.length > 0 ? (
           <div className="flex flex-wrap gap-1">
             {issue.labels.map((l) => (
@@ -647,21 +654,18 @@ function SortableIssueRow({
           <span className="text-gray-300 text-xs">—</span>
         )}
       </td>
-      <td className="px-4 py-3"><StatusBadge status={issue.status} color={projectStatuses.find(s => s.name === issue.status)?.color ?? undefined} /></td>
-      <td className="px-4 py-3">
-        <button
-          onClick={onDetail}
-          className="flex items-center gap-1 text-xs text-gray-400 hover:text-blue-600 transition-colors"
-        >
+      <td className="px-4 py-3 border-r border-gray-100"><StatusBadge status={issue.status} color={projectStatuses.find(s => s.name === issue.status)?.color ?? undefined} /></td>
+      <td className="px-4 py-3 border-r border-gray-100">
+        <span className="flex items-center gap-1 text-xs text-gray-400">
           <MessageSquare size={13} />
           <span>
             {issue.comment_count > 0
               ? `${issue.comment_count} comment${issue.comment_count === 1 ? '' : 's'}`
               : 'Add comment'}
           </span>
-        </button>
+        </span>
       </td>
-      <td className="px-4 py-3 text-xs text-gray-600">
+      <td className="px-4 py-3 text-xs text-gray-600 border-r border-gray-100">
         {sprint ? (
           <span className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-xs truncate max-w-[120px] block">
             {sprint.name}
@@ -670,8 +674,8 @@ function SortableIssueRow({
           <span className="text-gray-300">—</span>
         )}
       </td>
-      <td className="px-4 py-3"><UserCell person={issue.assignee} fallback="Unassigned" /></td>
-      <td className="px-4 py-3">
+      <td className="px-4 py-3 border-r border-gray-100"><UserCell person={issue.assignee} fallback="Unassigned" /></td>
+      <td className="px-4 py-3 border-r border-gray-100">
         {issue.due_date ? (
           <span className={cn('text-xs', isOverdue(issue.due_date, projectStatuses.find(s => s.name === issue.status)?.is_completed) ? 'text-red-500 font-medium' : 'text-gray-600')}>
             {formatDate(issue.due_date)}
@@ -680,9 +684,9 @@ function SortableIssueRow({
           <span className="text-gray-300 text-xs">—</span>
         )}
       </td>
-      <td className="px-4 py-3"><PriorityIcon priority={issue.priority} showLabel /></td>
-      <td className="px-4 py-3 text-xs text-gray-400">{formatDate(issue.created_at)}</td>
-      <td className="px-4 py-3 text-xs text-gray-400">{formatDate(issue.updated_at)}</td>
+      <td className="px-4 py-3 border-r border-gray-100"><PriorityIcon priority={issue.priority} showLabel /></td>
+      <td className="px-4 py-3 text-xs text-gray-400 border-r border-gray-100">{formatDate(issue.created_at)}</td>
+      <td className="px-4 py-3 text-xs text-gray-400 border-r border-gray-100">{formatDate(issue.updated_at)}</td>
       <td className="px-4 py-3"><UserCell person={issue.reporter} fallback="Unknown" /></td>
     </tr>
   )
