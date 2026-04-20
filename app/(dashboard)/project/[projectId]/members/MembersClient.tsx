@@ -15,20 +15,35 @@ const ROLE_CONFIG: Record<MemberRole, { label: string; icon: React.ReactNode; cl
   member: { label: 'Member', icon: <User size={12} />, className: 'text-gray-600 bg-gray-100' },
 }
 
+interface ProfileOption {
+  id: string
+  email: string
+  full_name: string | null
+  avatar_url: string | null
+}
+
 interface MembersClientProps {
   projectId: string
   currentUserId: string
   currentUserRole: MemberRole
   members: ProjectMemberWithProfile[]
+  availableProfiles: ProfileOption[]
 }
 
-export function MembersClient({ projectId, currentUserId, currentUserRole, members }: MembersClientProps) {
+export function MembersClient({ projectId, currentUserId, currentUserRole, members, availableProfiles }: MembersClientProps) {
   const router = useRouter()
   const { toast } = useToast()
 
   const [email, setEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<MemberRole>('member')
   const [inviteLoading, setInviteLoading] = useState(false)
+  const [showDropdown, setShowDropdown] = useState(false)
+
+  const filteredProfiles = availableProfiles.filter((p) => {
+    if (!email.trim()) return true
+    const q = email.toLowerCase()
+    return p.email.toLowerCase().includes(q) || (p.full_name ?? '').toLowerCase().includes(q)
+  })
 
   const canManage = currentUserRole === 'owner' || currentUserRole === 'admin'
 
@@ -43,6 +58,7 @@ export function MembersClient({ projectId, currentUserId, currentUserRole, membe
     } else {
       toast('Member added successfully.', 'success')
       setEmail('')
+      setShowDropdown(false)
       router.refresh()
     }
     setInviteLoading(false)
@@ -78,16 +94,47 @@ export function MembersClient({ projectId, currentUserId, currentUserRole, membe
             Add member
           </h2>
           <form onSubmit={handleInvite} className="flex gap-3 flex-wrap">
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email address..."
-              className="flex-1 min-w-[200px] px-3 py-2 border border-gray-300 rounded-lg text-sm
-                         focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
-                         placeholder:text-gray-400"
-              required
-            />
+            <div className="relative flex-1 min-w-[200px]">
+              <input
+                type="text"
+                value={email}
+                onChange={(e) => { setEmail(e.target.value); setShowDropdown(true) }}
+                onFocus={() => setShowDropdown(true)}
+                onBlur={() => setTimeout(() => setShowDropdown(false), 100)}
+                placeholder="Email address..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                           placeholder:text-gray-400"
+                required
+                autoComplete="off"
+              />
+              {showDropdown && filteredProfiles.length > 0 && (
+                <div className="absolute left-0 right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
+                  {filteredProfiles.map((profile) => (
+                    <button
+                      key={profile.id}
+                      type="button"
+                      onMouseDown={() => { setEmail(profile.email); setShowDropdown(false) }}
+                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-50 text-left"
+                    >
+                      <div className="h-7 w-7 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
+                        {profile.avatar_url ? (
+                          <img src={profile.avatar_url} className="h-7 w-7 rounded-full object-cover" alt="" />
+                        ) : (
+                          <span className="text-xs font-bold text-white">
+                            {(profile.full_name ?? profile.email)[0]?.toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{profile.full_name ?? profile.email}</p>
+                        <p className="text-xs text-gray-400 truncate">{profile.email}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <select
               value={inviteRole}
               onChange={(e) => setInviteRole(e.target.value as MemberRole)}

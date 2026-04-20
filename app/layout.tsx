@@ -17,8 +17,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: 'Clientify Board',
-    template: '%s | Clientify Board',
+    default: 'Clientify Projects',
+    template: '%s | Clientify Projects',
   },
   description: 'Gestión de proyectos y tickets para Clientify',
 }

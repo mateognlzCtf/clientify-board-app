@@ -1,7 +1,7 @@
 import { Resend } from 'resend'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
-const FROM = process.env.RESEND_FROM_EMAIL ?? 'Clientify Board <board@notifications.clientify.com>'
+const FROM = process.env.RESEND_FROM_EMAIL ?? 'Clientify Projects <board@notifications.clientify.com>'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
 
 function guard() {
@@ -45,7 +45,7 @@ export async function sendAssignmentNotification({
            style="display:inline-block;margin-top:4px;padding:8px 18px;background:#3b82f6;color:#fff;border-radius:6px;text-decoration:none;font-size:14px;font-weight:500">
           Ver ticket
         </a>
-        <p style="margin-top:24px;font-size:12px;color:#aaa">Clientify Board · no responder a este correo</p>
+        <p style="margin-top:24px;font-size:12px;color:#aaa">Clientify Projects · no responder a este correo</p>
       </div>
     `,
   })
@@ -90,7 +90,7 @@ export async function sendStatusChangeNotification({
            style="display:inline-block;margin-top:4px;padding:8px 18px;background:#3b82f6;color:#fff;border-radius:6px;text-decoration:none;font-size:14px;font-weight:500">
           Ver ticket
         </a>
-        <p style="margin-top:24px;font-size:12px;color:#aaa">Clientify Board · no responder a este correo</p>
+        <p style="margin-top:24px;font-size:12px;color:#aaa">Clientify Projects · no responder a este correo</p>
       </div>
     `,
   })
@@ -124,11 +124,11 @@ export async function sendProjectInviteNotification({
 
         <p style="font-size:15px;color:#333;margin:0 0 8px">
           <strong>${invitedByName}</strong> te invitó a unirte al proyecto
-          <strong>${projectName}</strong> en Clientify Board.
+          <strong>${projectName}</strong> en Clientify Projects.
         </p>
 
         <p style="font-size:14px;color:#666;margin:0 0 28px">
-          Clientify Board es una herramienta de gestión de proyectos y tickets para equipos.
+          Clientify Projects es una herramienta de gestión de proyectos y tickets para equipos.
         </p>
 
         <a href="${projectUrl}"
@@ -137,7 +137,7 @@ export async function sendProjectInviteNotification({
         </a>
 
         <hr style="margin:32px 0;border:none;border-top:1px solid #eee" />
-        <p style="font-size:12px;color:#aaa;margin:0">Clientify Board · no responder a este correo</p>
+        <p style="font-size:12px;color:#aaa;margin:0">Clientify Projects · no responder a este correo</p>
       </div>
     `,
   })
@@ -185,7 +185,7 @@ export async function sendMentionNotification({
            style="display:inline-block;margin-top:20px;padding:8px 18px;background:#3b82f6;color:#fff;border-radius:6px;text-decoration:none;font-size:14px;font-weight:500">
           Ver ticket
         </a>
-        <p style="margin-top:24px;font-size:12px;color:#aaa">Clientify Board · no responder a este correo</p>
+        <p style="margin-top:24px;font-size:12px;color:#aaa">Clientify Projects · no responder a este correo</p>
       </div>
     `,
   })

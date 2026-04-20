@@ -16,12 +16,12 @@ export default function AuthLayout({
         {/* Logo / Branding */}
         <div className="mb-8 text-center">
           <div className="inline-flex items-center gap-2 mb-3">
-            <Image src="/logo.png" alt="Clientify Board" width={32} height={32} />
+            <Image src="/logo.png" alt="Clientify Projects" width={32} height={32} />
             <span className="text-xl font-bold text-gray-900">
-              Clientify Board
+              Clientify Projects
             </span>
           </div>
-          <p className="text-sm text-gray-500">Gestión de proyectos</p>
+          <p className="text-sm text-gray-500">Project management</p>
         </div>
 
         {children}

@@ -17,7 +17,7 @@ export default async function TeamPage() {
   return (
     <div className="p-6 max-w-7xl">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-gray-900">People</h1>
+        <h1 className="text-2xl font-semibold text-gray-900">Workers</h1>
       </div>
       <TeamClient profiles={profiles ?? []} />
     </div>

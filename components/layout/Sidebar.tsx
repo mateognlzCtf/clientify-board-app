@@ -70,7 +70,7 @@ export function Sidebar({ projects: initialProjects, ownerProjectIds }: SidebarP
           </div>
           {!collapsed && (
             <span className="text-sm font-semibold text-white truncate flex-1">
-              Clientify Board
+              Clientify Projects
             </span>
           )}
           <button

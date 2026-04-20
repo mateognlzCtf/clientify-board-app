@@ -37,7 +37,7 @@ export function TeamClient({ profiles }: TeamClientProps) {
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search people..."
+          placeholder="Search workers..."
           className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg
                      focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
                      placeholder:text-gray-400 bg-white"
@@ -45,7 +45,7 @@ export function TeamClient({ profiles }: TeamClientProps) {
       </div>
 
       {/* Count */}
-      <p className="text-sm text-gray-500 font-medium">{filtered.length} {filtered.length === 1 ? 'person' : 'people'}</p>
+      <p className="text-sm text-gray-500 font-medium">{filtered.length} {filtered.length === 1 ? 'worker' : 'workers'}</p>
 
       {/* Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -55,7 +55,7 @@ export function TeamClient({ profiles }: TeamClientProps) {
       </div>
 
       {filtered.length === 0 && (
-        <p className="text-sm text-gray-400 italic py-8 text-center">No people found.</p>
+        <p className="text-sm text-gray-400 italic py-8 text-center">No workers found.</p>
       )}
     </div>
   )
