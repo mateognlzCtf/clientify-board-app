@@ -110,18 +110,8 @@ export function LoginClient({ inviteToken, defaultEmail, platformInviteToken }: 
       </form>
 
       <p className="mt-6 text-center text-sm text-gray-500">
-        Don&apos;t have an account?{' '}
-        <Link
-          href={
-            inviteToken
-              ? `/register?inviteToken=${inviteToken}`
-              : platformInviteToken
-              ? `/register?platformInviteToken=${platformInviteToken}`
-              : '/register'
-          }
-          className="text-blue-600 font-medium hover:underline"
-        >
-          Sign up for free
+        <Link href="/forgot-password" className="text-blue-600 font-medium hover:underline">
+          Forgot your password?
         </Link>
       </p>
     </div>
