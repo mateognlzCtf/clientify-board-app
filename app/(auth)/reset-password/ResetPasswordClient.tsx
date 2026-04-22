@@ -15,8 +15,9 @@ export function ResetPasswordClient() {
 
   useEffect(() => {
     const supabase = createClient()
-    const code = new URLSearchParams(window.location.search).get('code')
 
+    // PKCE flow: ?code=xxx in query params
+    const code = new URLSearchParams(window.location.search).get('code')
     if (code) {
       supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
         if (error) setError('Invalid or expired reset link. Please request a new one.')
@@ -25,14 +26,28 @@ export function ResetPasswordClient() {
       return
     }
 
-    // Fallback for hash-based flow
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') setReady(true)
-    })
+    // Implicit flow: #access_token=xxx&type=recovery in hash
+    const hashParams = new URLSearchParams(window.location.hash.slice(1))
+    const accessToken = hashParams.get('access_token')
+    const refreshToken = hashParams.get('refresh_token')
+    const type = hashParams.get('type')
+
+    if (accessToken && type === 'recovery') {
+      supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken ?? '',
+      }).then(({ error }) => {
+        if (error) setError('Invalid or expired reset link. Please request a new one.')
+        else setReady(true)
+      })
+      return
+    }
+
+    // Check if session already exists
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) setReady(true)
+      else setError('Invalid or expired reset link. Please request a new one.')
     })
-    return () => subscription.unsubscribe()
   }, [])
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
