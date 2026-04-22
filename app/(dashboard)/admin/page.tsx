@@ -29,19 +29,15 @@ export default async function AdminPage() {
   const invitations = invitationsResult.data ?? []
   const projects = projectsResult.data ?? []
 
-  const pending = users.filter((u) => u.status === 'pending')
   const active = users.filter((u) => u.status === 'active')
   const suspended = users.filter((u) => u.status === 'suspended')
-  const rejected = users.filter((u) => u.status === 'rejected')
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <h1 className="text-xl font-semibold text-gray-900 mb-6">Admin panel</h1>
       <AdminClient
-        pending={pending}
         active={active}
         suspended={suspended}
-        rejected={rejected}
         invitations={invitations}
         projects={projects}
         currentUserId={user.id}

@@ -5,8 +5,6 @@ import { Users, FileText, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import type { AdminUser, PlatformInvitation, AdminProject } from '@/services/admin.service'
 import {
-  approveUserAction,
-  rejectUserAction,
   suspendUserAction,
   reactivateUserAction,
   invitePlatformUserAction,
@@ -15,19 +13,17 @@ import {
 } from './admin-actions'
 
 interface Props {
-  pending: AdminUser[]
   active: AdminUser[]
   suspended: AdminUser[]
-  rejected: AdminUser[]
   invitations: PlatformInvitation[]
   projects: AdminProject[]
   currentUserId: string
 }
 
-type Tab = 'pending' | 'users' | 'invitations' | 'projects'
+type Tab = 'users' | 'invitations' | 'projects'
 
-export function AdminClient({ pending, active, suspended, rejected, invitations, projects, currentUserId }: Props) {
-  const [tab, setTab] = useState<Tab>('pending')
+export function AdminClient({ active, suspended, invitations, projects, currentUserId }: Props) {
+  const [tab, setTab] = useState<Tab>('users')
   const [loading, setLoading] = useState<string | null>(null)
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteError, setInviteError] = useState<string | null>(null)
@@ -54,8 +50,7 @@ export function AdminClient({ pending, active, suspended, rejected, invitations,
   }
 
   const tabs: { id: Tab; label: string; count?: number }[] = [
-    { id: 'pending', label: 'Pending approval', count: pending.length },
-    { id: 'users', label: 'Users', count: active.length + suspended.length + rejected.length },
+    { id: 'users', label: 'Users', count: active.length + suspended.length },
     { id: 'invitations', label: 'Invitations', count: invitations.length },
     { id: 'projects', label: 'Projects', count: projects.length },
   ]
@@ -87,49 +82,6 @@ export function AdminClient({ pending, active, suspended, rejected, invitations,
           </button>
         ))}
       </div>
-
-      {/* Pending tab */}
-      {tab === 'pending' && (
-        <div>
-          {pending.length === 0 ? (
-            <p className="text-sm text-gray-500 text-center py-10">No pending registrations.</p>
-          ) : (
-            <div className="space-y-2">
-              {pending.map((u) => (
-                <div key={u.id} className="flex items-center justify-between bg-white border border-gray-200 rounded-xl px-4 py-3">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{u.full_name ?? '—'}</p>
-                    <p className="text-xs text-gray-500">{u.email}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      Registered {new Date(u.created_at).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      disabled={!!loading}
-                      onClick={() => handle(`approve-${u.id}`, () =>
-                        approveUserAction(u.id, u.email, u.full_name ?? u.email)
-                      )}
-                      className="px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
-                    >
-                      {loading === `approve-${u.id}` ? '...' : 'Approve'}
-                    </button>
-                    <button
-                      disabled={!!loading}
-                      onClick={() => handle(`reject-${u.id}`, () =>
-                        rejectUserAction(u.id, u.email, u.full_name ?? u.email)
-                      )}
-                      className="px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 text-xs font-medium rounded-lg hover:bg-red-100 disabled:opacity-50 transition-colors"
-                    >
-                      {loading === `reject-${u.id}` ? '...' : 'Reject'}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Users tab */}
       {tab === 'users' && (
@@ -175,29 +127,7 @@ export function AdminClient({ pending, active, suspended, rejected, invitations,
             </Section>
           )}
 
-          {rejected.length > 0 && (
-            <Section title="Rejected users">
-              {rejected.map((u) => (
-                <UserRow
-                  key={u.id}
-                  user={u}
-                  loading={loading}
-                  actions={[
-                    {
-                      label: 'Approve',
-                      loadingKey: `approve-${u.id}`,
-                      className: 'bg-green-600 text-white hover:bg-green-700',
-                      onClick: () => handle(`approve-${u.id}`, () =>
-                        approveUserAction(u.id, u.email, u.full_name ?? u.email)
-                      ),
-                    },
-                  ]}
-                />
-              ))}
-            </Section>
-          )}
-
-          {active.length === 0 && suspended.length === 0 && rejected.length === 0 && (
+          {active.length === 0 && suspended.length === 0 && (
             <p className="text-sm text-gray-500 text-center py-10">No users found.</p>
           )}
         </div>
