@@ -32,8 +32,8 @@ type RawIssue = {
   resolved_at: string | null
   created_at: string
   updated_at: string
-  assignee: { id: string; full_name: string | null; avatar_url: string | null; status: string } | null
-  reporter: { id: string; full_name: string | null; avatar_url: string | null; status: string } | null
+  assignee: { id: string; full_name: string | null; avatar_url: string | null } | null
+  reporter: { id: string; full_name: string | null; avatar_url: string | null } | null
   epic: { id: string; name: string; color: string } | null
   comments: { count: number }[]
   issue_labels: { label: ProjectLabel }[] | null
@@ -47,8 +47,8 @@ export async function getIssues(
     .from('issues')
     .select(`
       *,
-      assignee:profiles!issues_assignee_id_fkey(id, full_name, avatar_url, status),
-      reporter:profiles!issues_reporter_id_fkey(id, full_name, avatar_url, status),
+      assignee:profiles!issues_assignee_id_fkey(id, full_name, avatar_url),
+      reporter:profiles!issues_reporter_id_fkey(id, full_name, avatar_url),
       epic:epics(id, name, color),
       comments(count),
       issue_labels(label:project_labels(id, name, color, project_id, created_at))
@@ -82,7 +82,7 @@ export async function getIssues(
     created_at: row.created_at,
     updated_at: row.updated_at,
     assignee: row.assignee,
-    reporter: row.reporter ?? { id: row.reporter_id, full_name: null, avatar_url: null, status: 'active' },
+    reporter: row.reporter ?? { id: row.reporter_id, full_name: null, avatar_url: null },
     epic: row.epic,
     comment_count: row.comments?.[0]?.count ?? 0,
     labels: (row.issue_labels ?? []).map((il) => il.label),
@@ -99,8 +99,8 @@ export async function getIssueById(
     .from('issues')
     .select(`
       *,
-      assignee:profiles!issues_assignee_id_fkey(id, full_name, avatar_url, status),
-      reporter:profiles!issues_reporter_id_fkey(id, full_name, avatar_url, status),
+      assignee:profiles!issues_assignee_id_fkey(id, full_name, avatar_url),
+      reporter:profiles!issues_reporter_id_fkey(id, full_name, avatar_url),
       epic:epics(id, name, color),
       comments(count),
       issue_labels(label:project_labels(id, name, color, project_id, created_at))
@@ -134,7 +134,7 @@ export async function getIssueById(
       created_at: row.created_at,
       updated_at: row.updated_at,
       assignee: row.assignee,
-      reporter: row.reporter ?? { id: row.reporter_id, full_name: null, avatar_url: null, status: 'active' },
+      reporter: row.reporter ?? { id: row.reporter_id, full_name: null, avatar_url: null },
       epic: row.epic,
       comment_count: row.comments?.[0]?.count ?? 0,
       labels: (row.issue_labels ?? []).map((il) => il.label),

@@ -210,16 +210,11 @@ export function IssueForm(props: IssueFormProps) {
                        focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="">Unassigned</option>
-            {props.members
-              .filter((m) => (m.profile?.status ?? 'active') === 'active' || m.user_id === assigneeId)
-              .map((m) => {
-                const inactive = (m.profile?.status ?? 'active') !== 'active'
-                return (
-                  <option key={m.user_id} value={m.user_id} disabled={inactive}>
-                    {m.profile?.full_name ?? m.user_id}{inactive ? ' (Suspended)' : ''}
-                  </option>
-                )
-              })}
+            {props.members.map((m) => (
+              <option key={m.user_id} value={m.user_id}>
+                {m.profile?.full_name ?? m.user_id}
+              </option>
+            ))}
           </select>
         </div>
       )}

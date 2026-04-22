@@ -94,7 +94,6 @@ async function sendMentionEmails({
             mentionedByName: authorName,
             issueKey: issue.key,
             issueTitle: issue.title,
-            issueId,
             projectId,
             commentSnippet,
           })

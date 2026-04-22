@@ -185,7 +185,6 @@ async function notifyAssignment({
       assignedByName: creator?.full_name ?? 'Alguien',
       issueKey: issue.key,
       issueTitle: issue.title,
-      issueId: issue.id,
       projectId,
     })
   } catch (err) {
@@ -215,7 +214,6 @@ async function notifyStatusChange({
       changedByName: updater?.full_name ?? 'Alguien',
       issueKey: issue.key,
       issueTitle: issue.title,
-      issueId: issue.id,
       newStatus,
       projectId,
     })

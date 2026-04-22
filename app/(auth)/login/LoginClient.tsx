@@ -9,10 +9,9 @@ import { isValidEmail } from '@/lib/utils/validation'
 interface Props {
   inviteToken?: string
   defaultEmail?: string
-  platformInviteToken?: string
 }
 
-export function LoginClient({ inviteToken, defaultEmail, platformInviteToken }: Props) {
+export function LoginClient({ inviteToken, defaultEmail }: Props) {
   const router = useRouter()
   const [email, setEmail] = useState(defaultEmail ?? '')
   const [password, setPassword] = useState('')
@@ -39,9 +38,7 @@ export function LoginClient({ inviteToken, defaultEmail, platformInviteToken }: 
       return
     }
 
-    if (platformInviteToken) {
-      router.push(`/accept-platform-invite?token=${platformInviteToken}`)
-    } else if (inviteToken) {
+    if (inviteToken) {
       router.push(`/accept-invite?token=${inviteToken}`)
     } else {
       router.push('/dashboard')
@@ -112,13 +109,7 @@ export function LoginClient({ inviteToken, defaultEmail, platformInviteToken }: 
       <p className="mt-6 text-center text-sm text-gray-500">
         Don&apos;t have an account?{' '}
         <Link
-          href={
-            inviteToken
-              ? `/register?inviteToken=${inviteToken}`
-              : platformInviteToken
-              ? `/register?platformInviteToken=${platformInviteToken}`
-              : '/register'
-          }
+          href={inviteToken ? `/register?inviteToken=${inviteToken}` : '/register'}
           className="text-blue-600 font-medium hover:underline"
         >
           Sign up for free

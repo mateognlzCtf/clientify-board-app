@@ -63,8 +63,8 @@ export interface IssueUpdate {
 }
 
 export interface IssueWithDetails extends Issue {
-  assignee: { id: string; full_name: string | null; avatar_url: string | null; status: string } | null
-  reporter: { id: string; full_name: string | null; avatar_url: string | null; status: string }
+  assignee: { id: string; full_name: string | null; avatar_url: string | null } | null
+  reporter: { id: string; full_name: string | null; avatar_url: string | null }
   epic: { id: string; name: string; color: string } | null
   comment_count: number
   labels: ProjectLabel[]

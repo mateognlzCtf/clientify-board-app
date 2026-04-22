@@ -202,13 +202,12 @@ export function MembersClient({
             const isCurrentUser = member.user_id === currentUserId
             const isOwner = member.role === 'owner'
             const canEdit = canManage && !isOwner && !isCurrentUser
-            const inactive = member.profile.status !== 'active'
 
             return (
               <li key={member.id} className="flex items-center gap-3 px-5 py-3">
-                <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${inactive ? 'bg-gray-400' : 'bg-blue-500'}`}>
+                <div className="h-8 w-8 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
                   {member.profile.avatar_url ? (
-                    <img src={member.profile.avatar_url} className={`h-8 w-8 rounded-full object-cover ${inactive ? 'grayscale opacity-60' : ''}`} alt="" />
+                    <img src={member.profile.avatar_url} className="h-8 w-8 rounded-full object-cover" alt="" />
                   ) : (
                     <span className="text-xs font-bold text-white">
                       {(member.profile.full_name ?? member.profile.email)[0]?.toUpperCase()}
@@ -217,10 +216,9 @@ export function MembersClient({
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-medium truncate ${inactive ? 'text-gray-400' : 'text-gray-900'}`}>
+                  <p className="text-sm font-medium text-gray-900 truncate">
                     {member.profile.full_name ?? member.profile.email}
                     {isCurrentUser && <span className="text-gray-400 font-normal ml-1">(you)</span>}
-                    {inactive && <span className="ml-2 text-[10px] font-normal text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">Suspended</span>}
                   </p>
                   <p className="text-xs text-gray-400 truncate">{member.profile.email}</p>
                 </div>

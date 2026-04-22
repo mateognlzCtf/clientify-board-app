@@ -13,7 +13,7 @@ type RawComment = {
   content: JSONContent
   created_at: string
   updated_at: string
-  author: { id: string; email: string; full_name: string | null; avatar_url: string | null; status: string } | null
+  author: { id: string; email: string; full_name: string | null; avatar_url: string | null } | null
 }
 
 export async function getComments(
@@ -22,7 +22,7 @@ export async function getComments(
 ): Promise<ServiceResult<CommentWithAuthor[]>> {
   const { data, error } = await supabase
     .from('comments')
-    .select('*, author:profiles!comments_author_id_fkey(id, email, full_name, avatar_url, status)')
+    .select('*, author:profiles!comments_author_id_fkey(id, email, full_name, avatar_url)')
     .eq('issue_id', issueId)
     .order('created_at', { ascending: true })
 
@@ -37,7 +37,7 @@ export async function getComments(
     content: row.content,
     created_at: row.created_at,
     updated_at: row.updated_at,
-    author: row.author ?? { id: row.author_id, email: '', full_name: null, avatar_url: null, status: 'active' },
+    author: row.author ?? { id: row.author_id, email: '', full_name: null, avatar_url: null },
   }))
 
   return { data: comments, error: null }
@@ -55,7 +55,7 @@ export async function createComment(
       author_id: userId,
       content: data.content as unknown as Database['public']['Tables']['comments']['Insert']['content'],
     })
-    .select('*, author:profiles!comments_author_id_fkey(id, email, full_name, avatar_url, status)')
+    .select('*, author:profiles!comments_author_id_fkey(id, email, full_name, avatar_url)')
     .single()
 
   if (error) {
@@ -72,7 +72,7 @@ export async function createComment(
       content: raw.content,
       created_at: raw.created_at,
       updated_at: raw.updated_at,
-      author: raw.author ?? { id: raw.author_id, email: '', full_name: null, avatar_url: null, status: 'active' },
+      author: raw.author ?? { id: raw.author_id, email: '', full_name: null, avatar_url: null },
     },
     error: null,
   }

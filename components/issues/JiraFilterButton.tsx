@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils/cn'
 export interface FilterFieldDef {
   id: string
   label: string
-  options: { value: string; label: string; color?: string; avatarUrl?: string | null; inactive?: boolean }[]
+  options: { value: string; label: string; color?: string; avatarUrl?: string | null }[]
 }
 
 export function JiraFilterButton({
@@ -147,9 +147,9 @@ export function JiraFilterButton({
 
                     {opt.avatarUrl !== undefined && (
                       opt.avatarUrl ? (
-                        <img src={opt.avatarUrl} className={`h-5 w-5 rounded-full object-cover shrink-0 ${opt.inactive ? 'grayscale opacity-60' : ''}`} alt="" />
+                        <img src={opt.avatarUrl} className="h-5 w-5 rounded-full object-cover shrink-0" alt="" />
                       ) : (
-                        <div className={`h-5 w-5 rounded-full flex items-center justify-center shrink-0 ${opt.inactive ? 'bg-gray-400' : 'bg-blue-500'}`}>
+                        <div className="h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
                           <span className="text-[8px] font-bold text-white">{initials}</span>
                         </div>
                       )

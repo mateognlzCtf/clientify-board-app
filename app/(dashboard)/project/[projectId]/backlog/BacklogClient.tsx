@@ -380,7 +380,7 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues, spr
                 id: 'assignees', label: 'Assignee',
                 options: [
                   { value: '__unassigned__', label: 'Unassigned' },
-                  ...members.map((m) => ({ value: m.user_id, label: m.profile?.full_name ?? m.user_id, avatarUrl: m.profile?.avatar_url ?? null, inactive: (m.profile?.status ?? 'active') !== 'active' })),
+                  ...members.map((m) => ({ value: m.user_id, label: m.profile?.full_name ?? m.user_id, avatarUrl: m.profile?.avatar_url ?? null })),
                 ],
               },
               {
@@ -840,9 +840,9 @@ function DraggableIssueRow({
         <StatusBadge status={issue.status} color={projectStatuses.find(s => s.name === issue.status)?.color ?? undefined} />
         <PriorityIcon priority={issue.priority} />
         {issue.assignee && (
-          <div className={`h-5 w-5 rounded-full flex items-center justify-center shrink-0 ${issue.assignee.status !== 'active' ? 'bg-gray-400' : 'bg-blue-500'}`} title={`${issue.assignee.full_name ?? ''}${issue.assignee.status !== 'active' ? ' (Inactive)' : ''}`}>
+          <div className="h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center shrink-0" title={issue.assignee.full_name ?? ''}>
             {issue.assignee.avatar_url ? (
-              <img src={issue.assignee.avatar_url} className={`h-5 w-5 rounded-full object-cover ${issue.assignee.status !== 'active' ? 'grayscale opacity-60' : ''}`} alt="" />
+              <img src={issue.assignee.avatar_url} className="h-5 w-5 rounded-full object-cover" alt="" />
             ) : (
               <span className="text-[8px] font-bold text-white">
                 {issue.assignee.full_name?.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase()}

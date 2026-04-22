@@ -599,16 +599,13 @@ export function IssueDetail({
                     <span className="flex-1 text-sm text-gray-700 truncate">{linked.title}</span>
                     <PriorityIcon priority={linked.priority as never} />
                     {linked.assignee ? (
-                      (() => {
-                        const linkedInactive = linked.assignee.status !== 'active'
-                        return linked.assignee.avatar_url
-                          ? <img src={linked.assignee.avatar_url} alt="" className={`h-5 w-5 rounded-full object-cover shrink-0 ${linkedInactive ? 'grayscale opacity-60' : ''}`} title={linked.assignee.full_name ?? ''} />
-                          : <div className={`h-5 w-5 rounded-full flex items-center justify-center shrink-0 ${linkedInactive ? 'bg-gray-400' : 'bg-blue-500'}`} title={linked.assignee.full_name ?? ''}>
-                              <span className="text-[8px] font-bold text-white">
-                                {linked.assignee.full_name?.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase() ?? '?'}
-                              </span>
-                            </div>
-                      })()
+                      linked.assignee.avatar_url
+                        ? <img src={linked.assignee.avatar_url} alt="" className="h-5 w-5 rounded-full object-cover shrink-0" title={linked.assignee.full_name ?? ''} />
+                        : <div className="h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center shrink-0" title={linked.assignee.full_name ?? ''}>
+                            <span className="text-[8px] font-bold text-white">
+                              {linked.assignee.full_name?.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase() ?? '?'}
+                            </span>
+                          </div>
                     ) : (
                       <div className="h-5 w-5 rounded-full bg-gray-100 border border-gray-200 shrink-0" title="Unassigned" />
                     )}
@@ -709,37 +706,23 @@ export function IssueDetail({
                   className="w-full appearance-none text-xs text-gray-700 px-2 py-1 rounded border border-gray-200 bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 pr-5"
                 >
                   <option value="">Unassigned</option>
-                  {members
-                    .filter((m) => (m.profile?.status ?? 'active') === 'active' || m.user_id === assigneeId)
-                    .map((m) => {
-                      const inactive = (m.profile?.status ?? 'active') !== 'active'
-                      return (
-                        <option key={m.user_id} value={m.user_id} disabled={inactive}>
-                          {m.profile?.full_name ?? m.user_id}{inactive ? ' (Suspended)' : ''}
-                        </option>
-                      )
-                    })}
+                  {members.map((m) => (
+                    <option key={m.user_id} value={m.user_id}>{m.profile?.full_name ?? m.user_id}</option>
+                  ))}
                 </select>
                 <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">▾</span>
               </div>
               {assignee && (
                 <div className="flex items-center gap-1.5">
-                  {(() => {
-                    const inactive = assignee.status !== undefined && assignee.status !== 'active'
-                    const initials = assignee.full_name?.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase() ?? '?'
-                    return (
-                      <>
-                        {assignee.avatar_url
-                          ? <img src={assignee.avatar_url} alt="" className={`h-5 w-5 rounded-full object-cover ${inactive ? 'grayscale opacity-60' : ''}`} />
-                          : <div className={`h-5 w-5 rounded-full flex items-center justify-center shrink-0 ${inactive ? 'bg-gray-400' : 'bg-blue-500'}`}>
-                              <span className="text-[8px] font-bold text-white">{initials}</span>
-                            </div>
-                        }
-                        <span className="text-xs text-gray-600 truncate">{assignee.full_name ?? 'Unknown'}</span>
-                        {inactive && <span className="text-xs text-gray-400">(Inactive)</span>}
-                      </>
-                    )
-                  })()}
+                  {assignee.avatar_url
+                    ? <img src={assignee.avatar_url} alt="" className="h-5 w-5 rounded-full object-cover" />
+                    : <div className="h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
+                        <span className="text-[8px] font-bold text-white">
+                          {assignee.full_name?.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase() ?? '?'}
+                        </span>
+                      </div>
+                  }
+                  <span className="text-xs text-gray-600 truncate">{assignee.full_name ?? 'Unknown'}</span>
                 </div>
               )}
             </div>
@@ -888,24 +871,22 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 // ── UserChip ──────────────────────────────────────────────────────────────────
 
 function UserChip({ person, fallback }: {
-  person: { id: string; full_name: string | null; avatar_url: string | null; status?: string } | null
+  person: { id: string; full_name: string | null; avatar_url: string | null } | null
   fallback: string
 }) {
   if (!person) return <span className="text-xs text-gray-400">{fallback}</span>
   const initials = person.full_name
     ? person.full_name.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase()
     : '?'
-  const inactive = person.status !== undefined && person.status !== 'active'
   return (
     <div className="flex items-center gap-1.5">
       {person.avatar_url
-        ? <img src={person.avatar_url} alt={person.full_name ?? ''} className={`h-6 w-6 rounded-full object-cover ${inactive ? 'grayscale opacity-60' : ''}`} />
-        : <div className={`h-6 w-6 rounded-full flex items-center justify-center shrink-0 ${inactive ? 'bg-gray-400' : 'bg-blue-500'}`}>
+        ? <img src={person.avatar_url} alt={person.full_name ?? ''} className="h-6 w-6 rounded-full object-cover" />
+        : <div className="h-6 w-6 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
             <span className="text-[9px] font-bold text-white">{initials}</span>
           </div>
       }
       <span className="text-sm text-gray-700">{person.full_name ?? 'Unknown'}</span>
-      {inactive && <span className="text-xs text-gray-400">(Inactive)</span>}
     </div>
   )
 }

@@ -376,14 +376,13 @@ function CommentItem({
   return (
     <>
       <div className="flex gap-2.5">
-        {(() => {
-          const authorInactive = comment.author.status !== 'active'
-          return comment.author.avatar_url
-            ? <img src={comment.author.avatar_url} className={`h-7 w-7 rounded-full object-cover shrink-0 mt-0.5 ${authorInactive ? 'grayscale opacity-60' : ''}`} alt="" />
-            : <div className={`h-7 w-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${authorInactive ? 'bg-gray-400' : 'bg-blue-500'}`}>
-                <span className="text-[10px] font-bold text-white">{initials}</span>
-              </div>
-        })()}
+        <div className="h-7 w-7 rounded-full bg-blue-500 flex items-center justify-center shrink-0 mt-0.5">
+          {comment.author.avatar_url ? (
+            <img src={comment.author.avatar_url} className="h-7 w-7 rounded-full object-cover" alt="" />
+          ) : (
+            <span className="text-[10px] font-bold text-white">{initials}</span>
+          )}
+        </div>
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">

@@ -5,7 +5,6 @@
  * 1. Refrescar la sesión de Supabase (actualizar cookies de auth)
  * 2. Redirigir usuarios no autenticados que intenten acceder al dashboard
  * 3. Redirigir usuarios autenticados que vayan a /login o /register
- * 4. Bloquear usuarios con status 'pending' o 'suspended'
  */
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
@@ -34,75 +33,27 @@ export async function proxy(request: NextRequest) {
     }
   )
 
+  // IMPORTANTE: usar getUser() y no getSession() para verificar con el servidor
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
   const pathname = request.nextUrl.pathname
-
   const isAuthRoute =
     pathname.startsWith('/login') || pathname.startsWith('/register')
 
-  // Pages that blocked users are allowed to visit
-  const isStatusGate =
-    pathname.startsWith('/pending-approval') ||
-    pathname.startsWith('/suspended') ||
-    pathname.startsWith('/rejected') ||
-    pathname.startsWith('/accept-platform-invite')
-
-  // Pages that work without auth (token-based)
-  const isPublicAction = pathname.startsWith('/admin-action')
-
-  if (!user && !isAuthRoute && !isPublicAction && pathname !== '/') {
+  // Usuario no autenticado intentando acceder a ruta protegida
+  if (!user && !isAuthRoute && pathname !== '/') {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
   }
 
+  // Usuario autenticado intentando ir a login/register
   if (user && isAuthRoute) {
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)
-  }
-
-  // Check profile status — prefer JWT app_metadata (fast), fall back to DB for existing users
-  if (user && !isAuthRoute && !isPublicAction) {
-    let status = user.app_metadata?.status as string | undefined
-
-    if (!status) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('status')
-        .eq('id', user.id)
-        .single()
-      status = profile?.status ?? undefined
-    }
-
-    if (isStatusGate) {
-      if (status === 'active') {
-        const url = request.nextUrl.clone()
-        url.pathname = '/dashboard'
-        return NextResponse.redirect(url)
-      }
-    } else {
-      if (status === 'pending') {
-        const url = request.nextUrl.clone()
-        url.pathname = '/pending-approval'
-        return NextResponse.redirect(url)
-      }
-
-      if (status === 'suspended') {
-        const url = request.nextUrl.clone()
-        url.pathname = '/suspended'
-        return NextResponse.redirect(url)
-      }
-
-      if (status === 'rejected') {
-        const url = request.nextUrl.clone()
-        url.pathname = '/rejected'
-        return NextResponse.redirect(url)
-      }
-    }
   }
 
   return supabaseResponse
@@ -110,6 +61,13 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
+    /*
+     * Aplica a todas las rutas excepto:
+     * - _next/static (archivos estáticos)
+     * - _next/image (optimización de imágenes)
+     * - favicon.ico
+     * - Archivos de imagen públicos
+     */
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

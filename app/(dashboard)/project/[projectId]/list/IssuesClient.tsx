@@ -342,7 +342,7 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
               id: 'assignees', label: 'Assignee',
               options: [
                 { value: '__unassigned__', label: 'Unassigned' },
-                ...members.map((m) => ({ value: m.user_id, label: m.profile?.full_name ?? m.user_id, avatarUrl: m.profile?.avatar_url ?? null, inactive: (m.profile?.status ?? 'active') !== 'active' })),
+                ...members.map((m) => ({ value: m.user_id, label: m.profile?.full_name ?? m.user_id, avatarUrl: m.profile?.avatar_url ?? null })),
               ],
             },
             ...(projectLabels.length > 0 ? [{
@@ -769,16 +769,15 @@ function ListGroupButton({ groupBy, onChange }: { groupBy: ListGroupBy; onChange
   )
 }
 
-function UserCell({ person, fallback }: { person: { id: string; full_name: string | null; avatar_url: string | null; status?: string } | null; fallback: string }) {
+function UserCell({ person, fallback }: { person: { id: string; full_name: string | null; avatar_url: string | null } | null; fallback: string }) {
   if (!person) return <span className="text-xs text-gray-300">{fallback}</span>
   const initials = person.full_name ? person.full_name.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase() : '?'
-  const inactive = person.status !== undefined && person.status !== 'active'
   return (
     <div className="flex items-center gap-1.5">
       {person.avatar_url ? (
-        <img src={person.avatar_url} alt="" className={`h-5 w-5 rounded-full object-cover ${inactive ? 'grayscale opacity-60' : ''}`} />
+        <img src={person.avatar_url} alt="" className="h-5 w-5 rounded-full object-cover" />
       ) : (
-        <div className={`h-5 w-5 rounded-full flex items-center justify-center shrink-0 ${inactive ? 'bg-gray-400' : 'bg-blue-500'}`}>
+        <div className="h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
           <span className="text-[8px] font-bold text-white">{initials}</span>
         </div>
       )}
