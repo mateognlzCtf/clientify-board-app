@@ -64,10 +64,17 @@ export function RegisterClient({ inviteToken, defaultEmail, platformInviteToken 
       }
 
       // Standard registration
-      const result = await registerStandardAction(email, password, fullName.trim())
+      const result = await registerStandardAction(email, password, fullName.trim(), !!inviteToken)
       if (result.error) {
         setError(result.error)
         setLoading(false)
+        return
+      }
+
+      if (inviteToken) {
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+        if (signInError) { router.push('/login'); return }
+        window.location.href = `/accept-invite?token=${inviteToken}`
         return
       }
 

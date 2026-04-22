@@ -46,7 +46,8 @@ export async function notifyAdminOfRegistrationAction(
 export async function registerStandardAction(
   email: string,
   password: string,
-  fullName: string
+  fullName: string,
+  skipPending: boolean = false
 ): Promise<{ error: string | null }> {
   const supabase = createAdminClient()
 
@@ -67,7 +68,7 @@ export async function registerStandardAction(
   const userId = userData.user?.id
   if (!userId) return { error: 'Error creating account. Please try again.' }
 
-  await notifyAdminOfRegistrationAction(userId, fullName, email, false)
+  await notifyAdminOfRegistrationAction(userId, fullName, email, skipPending)
   return { error: null }
 }
 
