@@ -50,9 +50,6 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/rejected') ||
     pathname.startsWith('/accept-platform-invite')
 
-  // Email confirmation callback — let any authenticated user through so we can set status=pending
-  const isCallbackRoute = pathname.startsWith('/email-confirmed')
-
   // Pages that work without auth (token-based)
   const isPublicAction = pathname.startsWith('/admin-action')
 
@@ -69,7 +66,7 @@ export async function proxy(request: NextRequest) {
   }
 
   // Check profile status for authenticated users
-  if (user && !isAuthRoute && !isPublicAction && !isCallbackRoute) {
+  if (user && !isAuthRoute && !isPublicAction) {
     const { data: profile } = await supabase
       .from('profiles')
       .select('status')
