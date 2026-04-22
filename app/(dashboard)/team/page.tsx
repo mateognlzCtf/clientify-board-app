@@ -12,6 +12,7 @@ export default async function TeamPage() {
   const { data: profiles } = await admin
     .from('profiles')
     .select('id, full_name, email, avatar_url, created_at')
+    .eq('status', 'active')
     .order('full_name', { ascending: true })
 
   return (
