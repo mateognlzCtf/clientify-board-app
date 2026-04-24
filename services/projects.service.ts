@@ -41,10 +41,18 @@ export interface ProjectWithMembers extends Project {
 export async function getProjects(
   supabase: Client
 ): Promise<ServiceResult<ProjectWithMembers[]>> {
-  // 1. Proyectos (RLS filtra automáticamente los del usuario)
+  // 1. Proyectos del usuario usando auth.uid() del servidor
+  const { data: projectIdRows } = await supabase.rpc('get_user_project_ids')
+  const userProjectIds = (projectIdRows ?? []) as string[]
+
+  if (userProjectIds.length === 0) {
+    return { data: [], error: null }
+  }
+
   const { data: projectsData, error: projectsError } = await supabase
     .from('projects')
     .select('*')
+    .in('id', userProjectIds)
     .order('created_at', { ascending: false })
 
   if (projectsError) {
