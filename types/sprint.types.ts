@@ -1,6 +1,6 @@
 import type { IssueWithDetails } from '@/types/issue.types'
 
-export type SprintStatus = 'planning' | 'active' | 'completed'
+export type SprintStatus = 'planned' | 'active' | 'completed'
 
 export interface Sprint {
   id: string

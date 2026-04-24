@@ -137,7 +137,7 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues, spr
 
   const activeSprint = sprints.find((s) => s.status === 'active') ?? null
   const planningSprints = sprints
-    .filter((s) => s.status === 'planning')
+    .filter((s) => s.status === 'planned')
     .sort((a, b) => {
       if (!a.start_date && !b.start_date) return 0
       if (!a.start_date) return 1
@@ -200,7 +200,7 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues, spr
   useEffect(() => {
     if (autoCreatedRef.current) return
     const active = sprints.find((s) => s.status === 'active')
-    const hasPlanning = sprints.some((s) => s.status === 'planning')
+    const hasPlanning = sprints.some((s) => s.status === 'planned')
     if (active && !hasPlanning) {
       autoCreatedRef.current = true
       autoCreateNextSprint(active)
@@ -275,7 +275,7 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues, spr
     toast(`Sprint "${updatedSprint.name}" started.`, 'success')
 
     // Auto-create the next planning sprint if none remain
-    const hasPlanning = sprints.some((s) => s.status === 'planning' && s.id !== startSprintTarget.id)
+    const hasPlanning = sprints.some((s) => s.status === 'planned' && s.id !== startSprintTarget.id)
     if (!hasPlanning) {
       await autoCreateNextSprint(updatedSprint)
     }

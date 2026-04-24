@@ -784,7 +784,7 @@ export function IssueDetail({
                   <option value="">Backlog</option>
                   {sprints?.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.name}{s.status === 'active' ? ' (active)' : s.status === 'planning' ? ' (future)' : ''}
+                      {s.name}{s.status === 'active' ? ' (active)' : s.status === 'planned' ? ' (future)' : ''}
                     </option>
                   ))}
                 </select>
