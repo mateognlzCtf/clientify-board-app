@@ -109,11 +109,13 @@ export function LoginClient({ inviteToken, defaultEmail, platformInviteToken }: 
         </button>
       </form>
 
+      {/* Forgot password — temporarily hidden, re-enable when needed
       <p className="mt-6 text-center text-sm text-gray-500">
         <Link href="/forgot-password" className="text-blue-600 font-medium hover:underline">
           Forgot your password?
         </Link>
       </p>
+      */}
     </div>
   )
 }
