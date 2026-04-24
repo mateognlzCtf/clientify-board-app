@@ -72,13 +72,27 @@ export function RegisterClient({ inviteToken, defaultEmail, platformInviteToken 
         return
       }
 
-      // Project invite — use admin API, skip email confirmation
+      // Project invite — same as platform invite but redirects to accept-invite after confirmation
       if (inviteToken) {
-        const result = await registerStandardAction(email, password, fullName.trim(), true)
-        if (result.error) { setError(result.error); setLoading(false); return }
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
-        if (signInError) { router.push('/login'); return }
-        window.location.href = `/accept-invite?token=${inviteToken}`
+        const { error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { full_name: fullName.trim() },
+            emailRedirectTo: `${window.location.origin}/auth/callback?inviteToken=${inviteToken}`,
+          },
+        })
+        if (signUpError) {
+          setError(
+            signUpError.message.includes('already registered') || signUpError.message.includes('already been registered')
+              ? 'An account with this email already exists. Try signing in.'
+              : 'Error creating account. Please try again.'
+          )
+          setLoading(false)
+          return
+        }
+        setEmailSent(true)
+        setLoading(false)
         return
       }
 

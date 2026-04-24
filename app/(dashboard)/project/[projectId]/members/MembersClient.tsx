@@ -31,6 +31,7 @@ interface MembersClientProps {
   projectId: string
   currentUserId: string
   currentUserRole: MemberRole
+  isSuperAdmin: boolean
   members: ProjectMemberWithProfile[]
   availableProfiles: ProfileOption[]
   pendingInvitations: PendingInvitation[]
@@ -40,6 +41,7 @@ export function MembersClient({
   projectId,
   currentUserId,
   currentUserRole,
+  isSuperAdmin,
   members,
   availableProfiles,
   pendingInvitations,
@@ -61,9 +63,14 @@ export function MembersClient({
 
   const canManage = currentUserRole === 'owner' || currentUserRole === 'admin'
 
+  const emailMatchesProfile = availableProfiles.some(
+    (p) => p.email.toLowerCase() === email.trim().toLowerCase()
+  )
+  const canInviteEmail = isSuperAdmin || emailMatchesProfile
+
   async function handleInvite(e: React.FormEvent) {
     e.preventDefault()
-    if (!email.trim()) return
+    if (!email.trim() || !canInviteEmail) return
     setInviteLoading(true)
 
     const { error } = await inviteMemberAction(projectId, email.trim(), inviteRole)
@@ -178,13 +185,20 @@ export function MembersClient({
               <option value="member">Member</option>
               <option value="admin">Admin</option>
             </select>
-            <Button type="submit" loading={inviteLoading}>
+            <Button type="submit" loading={inviteLoading} disabled={!canInviteEmail}>
               Invite
             </Button>
           </form>
-          <p className="mt-3 text-xs text-gray-400">
-            If the email has no account, they will receive a link to sign up and join the project.
-          </p>
+          {email.trim() && !emailMatchesProfile && !isSuperAdmin && (
+            <p className="mt-2 text-xs text-amber-600">
+              This email is not registered on the platform.
+            </p>
+          )}
+          {isSuperAdmin && (
+            <p className="mt-3 text-xs text-gray-400">
+              If the email has no account, they will receive a link to sign up and join the project.
+            </p>
+          )}
         </div>
       )}
 

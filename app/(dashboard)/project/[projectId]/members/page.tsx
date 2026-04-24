@@ -32,11 +32,16 @@ export default async function MembersPage({ params }: Props) {
     .not('id', 'in', `(${memberIds.join(',')})`)
     .order('full_name', { ascending: true })
 
+  const isSuperAdmin = process.env.PLATFORM_ADMIN_EMAILS?.split(',')
+    .map((e) => e.trim())
+    .includes(user.email ?? '') ?? false
+
   return (
     <MembersClient
       projectId={projectId}
       currentUserId={user.id}
       currentUserRole={currentMember.role as MemberRole}
+      isSuperAdmin={isSuperAdmin}
       members={members}
       availableProfiles={availableProfiles ?? []}
       pendingInvitations={pendingInvitations ?? []}

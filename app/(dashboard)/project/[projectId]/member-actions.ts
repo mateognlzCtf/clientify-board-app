@@ -47,7 +47,13 @@ export async function inviteMemberAction(
     }
     return result
   } else {
-    // New user → create pending invitation
+    // New user → only super admin can invite
+    const isSuperAdmin = process.env.PLATFORM_ADMIN_EMAILS?.split(',')
+      .map((e) => e.trim())
+      .includes(user.email ?? '') ?? false
+    if (!isSuperAdmin) {
+      return { data: null, error: 'Only a super admin can invite new users to the platform.' }
+    }
     const result = await createPendingInvitation(supabase, projectId, email, role, user.id)
     if (!result.error && result.data) {
       revalidatePath(`/project/${projectId}/members`)

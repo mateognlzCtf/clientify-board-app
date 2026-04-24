@@ -8,20 +8,45 @@ export default function AuthCallbackPage() {
   const router = useRouter()
 
   useEffect(() => {
-    const hash = window.location.hash.slice(1)
-    const params = new URLSearchParams(hash)
+    const searchParams = new URLSearchParams(window.location.search)
+    const hashParams = new URLSearchParams(window.location.hash.slice(1))
 
-    const accessToken = params.get('access_token')
-    const refreshToken = params.get('refresh_token') ?? ''
-    const type = params.get('type')
-    const errorCode = params.get('error_code')
+    const code = searchParams.get('code')
+    const inviteToken = searchParams.get('inviteToken')
+    const errorCode = hashParams.get('error_code') || searchParams.get('error')
 
-    if (errorCode || !accessToken) {
+    if (errorCode) {
       router.replace('/login')
       return
     }
 
     const supabase = createClient()
+
+    // PKCE flow — email confirmation
+    if (code) {
+      supabase.auth.exchangeCodeForSession(code)
+        .then(({ error }) => {
+          if (error) { router.replace('/login'); return }
+          if (inviteToken) {
+            router.replace(`/accept-invite?token=${inviteToken}`)
+          } else {
+            router.replace('/dashboard')
+          }
+        })
+        .catch(() => router.replace('/login'))
+      return
+    }
+
+    // Hash flow — password recovery
+    const accessToken = hashParams.get('access_token')
+    const refreshToken = hashParams.get('refresh_token') ?? ''
+    const type = hashParams.get('type')
+
+    if (!accessToken) {
+      router.replace('/login')
+      return
+    }
+
     supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
       .then(() => {
         if (type === 'recovery') {

@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Navbar } from '@/components/layout/Navbar'
 import type { UserProfile } from '@/types/auth.types'
@@ -17,6 +18,42 @@ export default async function DashboardLayout({
 
   if (!user) {
     redirect('/login')
+  }
+
+  // Auto-accept any pending project invitations for this user
+  if (user.email) {
+    const adminClient = createAdminClient()
+    const { data: pending } = await adminClient
+      .from('pending_invitations')
+      .select('*')
+      .eq('email', user.email)
+      .is('accepted_at', null)
+      .gt('expires_at', new Date().toISOString())
+
+    if (pending && pending.length > 0) {
+      await Promise.all(pending.map(async (inv) => {
+        const { data: existing } = await adminClient
+          .from('project_members')
+          .select('id')
+          .eq('project_id', inv.project_id)
+          .eq('user_id', user.id)
+          .single()
+
+        if (!existing) {
+          await adminClient.from('project_members').insert({
+            project_id: inv.project_id,
+            user_id: user.id,
+            role: inv.role,
+            invited_by: inv.invited_by,
+          })
+        }
+
+        await adminClient
+          .from('pending_invitations')
+          .update({ accepted_at: new Date().toISOString() })
+          .eq('id', inv.id)
+      }))
+    }
   }
 
   const [profileResult, membersResult] = await Promise.all([
