@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useMemo, useEffect } from 'react'
+import { useRef, useMemo, useEffect, useState } from 'react'
 import { useEditor, EditorContent, ReactRenderer } from '@tiptap/react'
 import { generateHTML } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
@@ -9,7 +9,8 @@ import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import ImageExtension from '@tiptap/extension-image'
 import Mention from '@tiptap/extension-mention'
 import { createLowlight, common } from 'lowlight'
-import { Image as ImageIcon } from 'lucide-react'
+import { Image as ImageIcon, Link as LinkIcon } from 'lucide-react'
+import LinkExtension from '@tiptap/extension-link'
 import type { JSONContent } from '@tiptap/core'
 import type { ProjectMemberPreview } from '@/services/projects.service'
 import { MentionList, type MentionListHandle } from '@/components/issues/MentionList'
@@ -21,6 +22,7 @@ export function buildDisplayExtensions() {
     StarterKit.configure({ codeBlock: false }),
     CodeBlockLowlight.configure({ lowlight }),
     ImageExtension.configure({ inline: false, allowBase64: true }),
+    LinkExtension.configure({ openOnClick: true, HTMLAttributes: { class: 'tiptap-link', target: '_blank', rel: 'noopener noreferrer' } }),
     Mention.configure({ HTMLAttributes: { class: 'mention-chip' } }),
   ]
 }
@@ -34,6 +36,7 @@ function buildEditorExtensions(
     StarterKit.configure({ codeBlock: false }),
     CodeBlockLowlight.configure({ lowlight }),
     ImageExtension.configure({ inline: false, allowBase64: true }),
+    LinkExtension.configure({ openOnClick: false, HTMLAttributes: { class: 'tiptap-link', target: '_blank', rel: 'noopener noreferrer' } }),
     Placeholder.configure({ placeholder }),
   ]
   if (!allowMentions) return base
@@ -120,6 +123,30 @@ export function RichTextEditor({
   const imageInputRef = useRef<HTMLInputElement>(null)
   const uploadingRef = useRef(false)
 
+  const [linkDialog, setLinkDialog] = useState<{ open: boolean; text: string; url: string } | null>(null)
+
+  function handleSetLink() {
+    const { from, to } = editor!.state.selection
+    const selectedText = from !== to ? editor!.state.doc.textBetween(from, to) : ''
+    const existingHref = editor?.getAttributes('link').href ?? ''
+    setLinkDialog({ open: true, text: selectedText, url: existingHref })
+  }
+
+  function applyLink() {
+    if (!linkDialog) return
+    const href = linkDialog.url.startsWith('http://') || linkDialog.url.startsWith('https://')
+      ? linkDialog.url
+      : `https://${linkDialog.url}`
+    const { from, to } = editor!.state.selection
+    if (from === to) {
+      const display = linkDialog.text.trim() || href
+      editor?.chain().focus().insertContent(`<a href="${href}" target="_blank">${display}</a>`).run()
+    } else {
+      editor?.chain().focus().extendMarkRange('link').setLink({ href }).run()
+    }
+    setLinkDialog(null)
+  }
+
   const extensions = useMemo(() => buildEditorExtensions(membersRef, placeholder, allowMentions), [placeholder, allowMentions])
 
   const editor = useEditor({
@@ -147,13 +174,21 @@ export function RichTextEditor({
   }
 
   return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent">
+    <div className="relative border border-gray-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent">
       {/* Toolbar */}
       <div className="flex gap-1 px-2 py-1.5 border-b border-gray-100 bg-gray-50">
         <TB onClick={() => editor?.chain().focus().toggleBold().run()} active={editor?.isActive('bold')} label="B" cls="font-bold" title="Bold" />
         <TB onClick={() => editor?.chain().focus().toggleItalic().run()} active={editor?.isActive('italic')} label="I" cls="italic" title="Italic" />
         <TB onClick={() => editor?.chain().focus().toggleCode().run()} active={editor?.isActive('code')} label="<>" cls="font-mono text-xs" title="Inline code" />
         <TB onClick={() => editor?.chain().focus().toggleCodeBlock().run()} active={editor?.isActive('codeBlock')} label="{ }" cls="font-mono text-xs" title="Code block" />
+        <button
+          type="button"
+          title="Link"
+          onClick={handleSetLink}
+          className={`px-2 py-0.5 text-sm rounded transition-colors ${editor?.isActive('link') ? 'bg-gray-200 text-gray-900' : 'text-gray-500 hover:bg-gray-100'}`}
+        >
+          <LinkIcon size={14} />
+        </button>
         <button
           type="button"
           title="Attach image"
@@ -176,6 +211,41 @@ export function RichTextEditor({
       </div>
 
       <EditorContent editor={editor} />
+
+      {/* Link dialog */}
+      {linkDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20">
+          <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-4 w-80 space-y-3">
+            <p className="text-sm font-semibold text-gray-900">Insert link</p>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Text to display</label>
+              <input
+                autoFocus
+                type="text"
+                value={linkDialog.text}
+                onChange={(e) => setLinkDialog({ ...linkDialog, text: e.target.value })}
+                placeholder="Link text"
+                className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">URL</label>
+              <input
+                type="text"
+                value={linkDialog.url}
+                onChange={(e) => setLinkDialog({ ...linkDialog, url: e.target.value })}
+                placeholder="https://..."
+                className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onKeyDown={(e) => { if (e.key === 'Enter') applyLink() }}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button type="button" onClick={() => setLinkDialog(null)} className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+              <button type="button" onClick={applyLink} disabled={!linkDialog.url.trim()} className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">Apply</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
