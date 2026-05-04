@@ -18,7 +18,7 @@ export default async function SettingsPage({ params }: Props) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Owners and admins can access settings
+  // Owners, admins and super admins can access settings
   const { data: member } = await supabase
     .from('project_members')
     .select('role')
@@ -26,7 +26,13 @@ export default async function SettingsPage({ params }: Props) {
     .eq('user_id', user.id)
     .single()
 
-  if (member?.role !== 'owner' && member?.role !== 'admin') redirect(`/project/${projectId}/backlog`)
+  const isSuperAdmin = process.env.PLATFORM_ADMIN_EMAILS?.split(',')
+    .map((e) => e.trim())
+    .includes(user.email ?? '') ?? false
+
+  if (member?.role !== 'owner' && member?.role !== 'admin' && !isSuperAdmin) {
+    redirect(`/project/${projectId}/backlog`)
+  }
 
   const admin = createAdminClient()
   const [{ data: epics }, { data: statuses }, { data: types }, { data: labels }] = await Promise.all([

@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, Fragment } from 'react'
-import { Users, FileText, Trash2 } from 'lucide-react'
+import Link from 'next/link'
+import { Users, FileText, Trash2, MoreHorizontal, Settings as SettingsIcon } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import type { AdminUser, PlatformInvitation, AdminProject } from '@/services/admin.service'
 import {
@@ -29,6 +30,7 @@ export function AdminClient({ active, suspended, invitations, projects, currentU
   const [inviteError, setInviteError] = useState<string | null>(null)
   const [inviteLoading, setInviteLoading] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [openMenu, setOpenMenu] = useState<string | null>(null)
 
   async function handle(key: string, fn: () => Promise<{ error: string | null }>) {
     setLoading(key)
@@ -152,17 +154,19 @@ export function AdminClient({ active, suspended, invitations, projects, currentU
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {projects.map((p) => (
+                  {projects.map((p, idx) => (
                     <Fragment key={p.id}>
                     <tr className="hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{p.key}</span>
-                          <span className="font-medium text-gray-900 truncate max-w-[180px]">{p.name}</span>
-                        </div>
-                        {p.description && (
-                          <p className="text-xs text-gray-400 mt-0.5 truncate max-w-[240px]">{p.description}</p>
-                        )}
+                        <Link href={`/project/${p.id}/list`} className="block hover:opacity-80 transition-opacity">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{p.key}</span>
+                            <span className="font-medium text-gray-900 truncate max-w-[180px] hover:text-blue-600">{p.name}</span>
+                          </div>
+                          {p.description && (
+                            <p className="text-xs text-gray-400 mt-0.5 truncate max-w-[240px]">{p.description}</p>
+                          )}
+                        </Link>
                       </td>
                       <td className="px-4 py-3">
                         {p.owner ? (
@@ -201,14 +205,36 @@ export function AdminClient({ active, suspended, invitations, projects, currentU
                       <td className="px-4 py-3 text-xs text-gray-400">
                         {new Date(p.created_at).toLocaleDateString()}
                       </td>
-                      <td className="px-4 py-3 text-right w-10">
+                      <td className="px-4 py-3 text-right w-10 relative">
                         <button
-                          onClick={() => setConfirmDelete(confirmDelete === p.id ? null : p.id)}
-                          className="p-1.5 text-gray-300 hover:text-red-500 transition-colors rounded"
-                          title="Delete project"
+                          onClick={() => setOpenMenu(openMenu === p.id ? null : p.id)}
+                          className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors rounded"
+                          title="Actions"
                         >
-                          <Trash2 size={14} />
+                          <MoreHorizontal size={14} />
                         </button>
+                        {openMenu === p.id && (
+                          <>
+                            <div className="fixed inset-0 z-10" onClick={() => setOpenMenu(null)} />
+                            <div className={`absolute right-2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-36 ${idx >= projects.length - 2 ? 'bottom-10' : 'top-10'}`}>
+                              <Link
+                                href={`/project/${p.id}/settings`}
+                                className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                                onClick={() => setOpenMenu(null)}
+                              >
+                                <SettingsIcon size={12} />
+                                Settings
+                              </Link>
+                              <button
+                                onClick={() => { setOpenMenu(null); setConfirmDelete(p.id) }}
+                                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 text-left"
+                              >
+                                <Trash2 size={12} />
+                                Delete
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </td>
                     </tr>
                     {confirmDelete === p.id && (

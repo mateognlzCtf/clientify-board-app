@@ -39,6 +39,12 @@ async function requireManager(projectId: string) {
   const ssrClient = await createSsrClient()
   const { data: { user } } = await ssrClient.auth.getUser()
   if (!user) redirect('/login')
+
+  const isSuperAdmin = process.env.PLATFORM_ADMIN_EMAILS?.split(',')
+    .map((e) => e.trim())
+    .includes(user.email ?? '') ?? false
+  if (isSuperAdmin) return { error: null, user }
+
   const { data } = await ssrClient
     .from('project_members')
     .select('role')
