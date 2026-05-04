@@ -96,17 +96,23 @@ export async function updateIssueAction(
     }
 
     const newAssigneeId = result.data.assignee_id
+    const reporterId = result.data.reporter_id
 
-    // Notify on status change (assignee != updater)
-    if (data.status && newAssigneeId && newAssigneeId !== user.id) {
-      void notifyStatusChange({
-        supabase,
-        assigneeId: newAssigneeId,
-        updaterId: user.id,
-        issue: result.data,
-        projectId,
-        newStatus: data.status,
-      })
+    // Notify on status change — assignee and reporter (skip updater, dedupe)
+    if (data.status) {
+      const recipients = new Set<string>()
+      if (newAssigneeId && newAssigneeId !== user.id) recipients.add(newAssigneeId)
+      if (reporterId && reporterId !== user.id) recipients.add(reporterId)
+      for (const recipientId of recipients) {
+        void notifyStatusChange({
+          supabase,
+          assigneeId: recipientId,
+          updaterId: user.id,
+          issue: result.data,
+          projectId,
+          newStatus: data.status,
+        })
+      }
     }
 
     // Notify on reassignment (new assignee != previous && != updater)

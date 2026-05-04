@@ -897,15 +897,15 @@ function UserChip({ person, fallback }: {
     : '?'
   const inactive = person.status !== undefined && person.status !== 'active'
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1.5 min-w-0">
       {person.avatar_url
-        ? <img src={person.avatar_url} alt={person.full_name ?? ''} className={`h-6 w-6 rounded-full object-cover ${inactive ? 'grayscale opacity-60' : ''}`} />
+        ? <img src={person.avatar_url} alt={person.full_name ?? ''} className={`h-6 w-6 rounded-full object-cover shrink-0 ${inactive ? 'grayscale opacity-60' : ''}`} />
         : <div className={`h-6 w-6 rounded-full flex items-center justify-center shrink-0 ${inactive ? 'bg-gray-400' : 'bg-blue-500'}`}>
             <span className="text-[9px] font-bold text-white">{initials}</span>
           </div>
       }
-      <span className="text-sm text-gray-700">{person.full_name ?? 'Unknown'}</span>
-      {inactive && <span className="text-xs text-gray-400">(Inactive)</span>}
+      <span className="text-sm text-gray-700 truncate min-w-0" title={person.full_name ?? 'Unknown'}>{person.full_name ?? 'Unknown'}</span>
+      {inactive && <span className="text-xs text-gray-400 shrink-0">(Inactive)</span>}
     </div>
   )
 }
