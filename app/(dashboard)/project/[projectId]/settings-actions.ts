@@ -35,6 +35,22 @@ async function requireOwner(projectId: string) {
   return { error: null, user }
 }
 
+async function requireManager(projectId: string) {
+  const ssrClient = await createSsrClient()
+  const { data: { user } } = await ssrClient.auth.getUser()
+  if (!user) redirect('/login')
+  const { data } = await ssrClient
+    .from('project_members')
+    .select('role')
+    .eq('project_id', projectId)
+    .eq('user_id', user.id)
+    .single()
+  if (data?.role !== 'owner' && data?.role !== 'admin') {
+    return { error: 'Only the project owner or admin can do this.', user: null }
+  }
+  return { error: null, user }
+}
+
 function revalidateProject(projectId: string) {
   revalidatePath(`/project/${projectId}/settings`)
   revalidatePath(`/project/${projectId}/backlog`)
@@ -47,7 +63,7 @@ function revalidateProject(projectId: string) {
 export async function createEpicSettingsAction(
   projectId: string, name: string, color: string,
 ): Promise<ServiceResult<Epic>> {
-  const { error } = await requireOwner(projectId)
+  const { error } = await requireManager(projectId)
   if (error) return { data: null, error }
   const supabase = createAdminClient()
   const result = await createEpic(supabase, { project_id: projectId, name, color })
@@ -58,7 +74,7 @@ export async function createEpicSettingsAction(
 export async function updateEpicSettingsAction(
   projectId: string, epicId: string, name: string, color: string,
 ): Promise<ServiceResult<Epic>> {
-  const { error } = await requireOwner(projectId)
+  const { error } = await requireManager(projectId)
   if (error) return { data: null, error }
   const supabase = createAdminClient()
   const result = await updateEpic(supabase, epicId, { name, color })
@@ -69,7 +85,7 @@ export async function updateEpicSettingsAction(
 export async function deleteEpicSettingsAction(
   projectId: string, epicId: string,
 ): Promise<ServiceResult<null>> {
-  const { error } = await requireOwner(projectId)
+  const { error } = await requireManager(projectId)
   if (error) return { data: null, error }
   const supabase = createAdminClient()
   const result = await deleteEpic(supabase, epicId)
@@ -82,7 +98,7 @@ export async function deleteEpicSettingsAction(
 export async function createStatusAction(
   projectId: string, name: string, color: string, position: number, requiresPauseReason = false,
 ): Promise<ServiceResult<ProjectStatus>> {
-  const { error } = await requireOwner(projectId)
+  const { error } = await requireManager(projectId)
   if (error) return { data: null, error }
   const supabase = createAdminClient()
   const result = await createProjectStatus(supabase, projectId, name, color, position, requiresPauseReason)
@@ -93,7 +109,7 @@ export async function createStatusAction(
 export async function updateStatusAction(
   projectId: string, id: string, name: string, color: string, requiresPauseReason?: boolean, isCompleted?: boolean,
 ): Promise<ServiceResult<ProjectStatus>> {
-  const { error } = await requireOwner(projectId)
+  const { error } = await requireManager(projectId)
   if (error) return { data: null, error }
   const supabase = createAdminClient()
   const updates: { name: string; color: string; requires_pause_reason?: boolean; is_completed?: boolean } = { name, color }
@@ -107,7 +123,7 @@ export async function updateStatusAction(
 export async function deleteStatusAction(
   projectId: string, id: string,
 ): Promise<ServiceResult<null>> {
-  const { error } = await requireOwner(projectId)
+  const { error } = await requireManager(projectId)
   if (error) return { data: null, error }
   const supabase = createAdminClient()
   const result = await deleteProjectStatus(supabase, id)
@@ -118,7 +134,7 @@ export async function deleteStatusAction(
 export async function reorderStatusesAction(
   projectId: string, updates: { id: string; position: number }[],
 ): Promise<ServiceResult<null>> {
-  const { error } = await requireOwner(projectId)
+  const { error } = await requireManager(projectId)
   if (error) return { data: null, error }
   const supabase = createAdminClient()
   await Promise.all(updates.map(({ id, position }) =>
@@ -133,7 +149,7 @@ export async function reorderStatusesAction(
 export async function createTypeAction(
   projectId: string, name: string, color: string, position: number,
 ): Promise<ServiceResult<ProjectIssueType>> {
-  const { error } = await requireOwner(projectId)
+  const { error } = await requireManager(projectId)
   if (error) return { data: null, error }
   const supabase = createAdminClient()
   const result = await createProjectType(supabase, projectId, name, color, position)
@@ -144,7 +160,7 @@ export async function createTypeAction(
 export async function updateTypeAction(
   projectId: string, id: string, name: string, color: string,
 ): Promise<ServiceResult<ProjectIssueType>> {
-  const { error } = await requireOwner(projectId)
+  const { error } = await requireManager(projectId)
   if (error) return { data: null, error }
   const supabase = createAdminClient()
   const result = await updateProjectType(supabase, id, { name, color })
@@ -155,7 +171,7 @@ export async function updateTypeAction(
 export async function deleteTypeAction(
   projectId: string, id: string,
 ): Promise<ServiceResult<null>> {
-  const { error } = await requireOwner(projectId)
+  const { error } = await requireManager(projectId)
   if (error) return { data: null, error }
   const supabase = createAdminClient()
   const result = await deleteProjectType(supabase, id)
@@ -166,7 +182,7 @@ export async function deleteTypeAction(
 export async function reorderTypesAction(
   projectId: string, updates: { id: string; position: number }[],
 ): Promise<ServiceResult<null>> {
-  const { error } = await requireOwner(projectId)
+  const { error } = await requireManager(projectId)
   if (error) return { data: null, error }
   const supabase = createAdminClient()
   await Promise.all(updates.map(({ id, position }) =>
@@ -181,7 +197,7 @@ export async function reorderTypesAction(
 export async function createLabelAction(
   projectId: string, name: string, color: string,
 ): Promise<ServiceResult<ProjectLabel>> {
-  const { error } = await requireOwner(projectId)
+  const { error } = await requireManager(projectId)
   if (error) return { data: null, error }
   const supabase = createAdminClient()
   const result = await createProjectLabel(supabase, projectId, name, color)
@@ -192,7 +208,7 @@ export async function createLabelAction(
 export async function updateLabelAction(
   projectId: string, id: string, name: string, color: string,
 ): Promise<ServiceResult<ProjectLabel>> {
-  const { error } = await requireOwner(projectId)
+  const { error } = await requireManager(projectId)
   if (error) return { data: null, error }
   const supabase = createAdminClient()
   const result = await updateProjectLabel(supabase, id, { name, color })
@@ -203,7 +219,7 @@ export async function updateLabelAction(
 export async function deleteLabelAction(
   projectId: string, id: string,
 ): Promise<ServiceResult<null>> {
-  const { error } = await requireOwner(projectId)
+  const { error } = await requireManager(projectId)
   if (error) return { data: null, error }
   const supabase = createAdminClient()
   const result = await deleteProjectLabel(supabase, id)

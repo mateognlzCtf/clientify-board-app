@@ -30,11 +30,11 @@ interface SidebarProject {
 
 interface SidebarProps {
   projects: SidebarProject[]
-  ownerProjectIds: string[]
+  manageableProjectIds: string[]
   isSuperAdmin?: boolean
 }
 
-export function Sidebar({ projects: initialProjects, ownerProjectIds, isSuperAdmin }: SidebarProps) {
+export function Sidebar({ projects: initialProjects, manageableProjectIds, isSuperAdmin }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [projects, setProjects] = useState(initialProjects)
   const [createOpen, setCreateOpen] = useState(false)
@@ -128,7 +128,7 @@ export function Sidebar({ projects: initialProjects, ownerProjectIds, isSuperAdm
                 project={project}
                 collapsed={collapsed}
                 active={pathname.startsWith(`/project/${project.id}`)}
-                isOwner={ownerProjectIds.includes(project.id)}
+                canManage={manageableProjectIds.includes(project.id)}
               />
             ))}
 
@@ -203,12 +203,12 @@ export function Sidebar({ projects: initialProjects, ownerProjectIds, isSuperAdm
 // ── Project nav item with optional settings button ────────────────────────────
 
 function ProjectNavItem({
-  project, collapsed, active, isOwner,
+  project, collapsed, active, canManage,
 }: {
   project: SidebarProject
   collapsed: boolean
   active: boolean
-  isOwner: boolean
+  canManage: boolean
 }) {
   return (
     <div className="group relative flex items-center">
@@ -227,7 +227,7 @@ function ProjectNavItem({
           <span className="truncate flex-1 text-[13px]">{project.name}</span>
         )}
       </Link>
-      {!collapsed && isOwner && (
+      {!collapsed && canManage && (
         <Link
           href={`/project/${project.id}/settings`}
           title="Project settings"

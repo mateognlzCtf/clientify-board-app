@@ -68,7 +68,7 @@ export default async function DashboardLayout({
 
   const memberRows = (membersResult.data ?? []) as Array<{ project_id: string; role: string }>
   const projectIds = memberRows.map((m) => m.project_id)
-  const ownerProjectIds = memberRows.filter((m) => m.role === 'owner').map((m) => m.project_id)
+  const manageableProjectIds = memberRows.filter((m) => m.role === 'owner' || m.role === 'admin').map((m) => m.project_id)
 
   const { data: projects } =
     projectIds.length > 0
@@ -95,7 +95,7 @@ export default async function DashboardLayout({
     <div className="flex h-screen overflow-hidden bg-gray-50">
       <Sidebar
         projects={projectList}
-        ownerProjectIds={ownerProjectIds}
+        manageableProjectIds={manageableProjectIds}
         isSuperAdmin={isSuperAdmin}
       />
       <div className="flex flex-col flex-1 overflow-hidden min-w-0">
