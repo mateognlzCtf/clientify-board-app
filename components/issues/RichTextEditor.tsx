@@ -19,7 +19,7 @@ const lowlight = createLowlight(common)
 
 export function buildDisplayExtensions() {
   return [
-    StarterKit.configure({ codeBlock: false }),
+    StarterKit.configure({ codeBlock: false, link: false }),
     CodeBlockLowlight.configure({ lowlight }),
     ImageExtension.configure({ inline: false, allowBase64: true }),
     LinkExtension.configure({ openOnClick: true, HTMLAttributes: { class: 'tiptap-link', target: '_blank', rel: 'noopener noreferrer' } }),
@@ -33,7 +33,7 @@ function buildEditorExtensions(
   allowMentions: boolean,
 ) {
   const base = [
-    StarterKit.configure({ codeBlock: false }),
+    StarterKit.configure({ codeBlock: false, link: false }),
     CodeBlockLowlight.configure({ lowlight }),
     ImageExtension.configure({ inline: false, allowBase64: true }),
     LinkExtension.configure({ openOnClick: false, HTMLAttributes: { class: 'tiptap-link', target: '_blank', rel: 'noopener noreferrer' } }),

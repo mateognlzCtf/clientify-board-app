@@ -15,6 +15,7 @@ import type { ServiceResult } from '@/types/common.types'
 import {
   sendAssignmentNotification,
   sendStatusChangeNotification,
+  sendIssueUpdatedNotification,
 } from '@/lib/email'
 
 async function getAuthenticatedUser() {
@@ -64,10 +65,11 @@ export async function updateIssueAction(
   const user = await getAuthenticatedUser()
   const supabase = createAdminClient()
 
-  // Fetch previous assignee before updating so we can detect reassignment
+  // Fetch previous state before updating to detect changes
   const { data: previous } = await supabase
     .from('issues')
-    .select('assignee_id')
+    .select('assignee_id, title, description, priority, type, due_date, start_date, sprint_id, epic_id, pause_reason')
+
     .eq('id', issueId)
     .single()
 
@@ -129,6 +131,25 @@ export async function updateIssueAction(
         issue: result.data,
         projectId,
       })
+    }
+
+    // Notify reporter & assignee on field updates (excluding status — has its own event)
+    const changes = detectChanges(previous, data, result.data)
+    await resolveSprintNames(supabase, changes)
+    if (changes.length > 0) {
+      const recipients = new Set<string>()
+      if (newAssigneeId && newAssigneeId !== user.id) recipients.add(newAssigneeId)
+      if (reporterId && reporterId !== user.id) recipients.add(reporterId)
+      for (const recipientId of recipients) {
+        void notifyIssueUpdated({
+          supabase,
+          recipientId,
+          updaterId: user.id,
+          issue: result.data,
+          projectId,
+          changes,
+        })
+      }
     }
   }
 
@@ -227,5 +248,92 @@ async function notifyStatusChange({
     })
   } catch (err) {
     console.error('[notifyStatusChange]', err)
+  }
+}
+
+type IssuePrevious = {
+  title: string
+  description: string | null
+  priority: string
+  type: string
+  due_date: string | null
+  start_date: string | null
+  sprint_id: string | null
+  epic_id: string | null
+  pause_reason: string | null
+} | null
+
+function detectChanges(
+  previous: IssuePrevious,
+  data: IssueUpdate,
+  current: Issue,
+): { field: string; from: string | null; to: string | null }[] {
+  if (!previous) return []
+  const changes: { field: string; from: string | null; to: string | null }[] = []
+  const fields: { key: keyof IssueUpdate; label: string }[] = [
+    { key: 'description', label: 'Description' },
+    { key: 'priority', label: 'Priority' },
+    { key: 'type', label: 'Type' },
+    { key: 'due_date', label: 'Due date' },
+    { key: 'sprint_id', label: 'Sprint' },
+    { key: 'pause_reason', label: 'Pause reason' },
+  ]
+  for (const { key, label } of fields) {
+    if (data[key] === undefined) continue
+    const prevVal = (previous as Record<string, unknown>)[key] ?? null
+    const newVal = (current as unknown as Record<string, unknown>)[key] ?? null
+    if (prevVal !== newVal) {
+      changes.push({
+        field: label,
+        from: prevVal == null ? null : String(prevVal),
+        to: newVal == null ? null : String(newVal),
+      })
+    }
+  }
+  return changes
+}
+
+async function resolveSprintNames(
+  supabase: ReturnType<typeof createAdminClient>,
+  changes: { field: string; from: string | null; to: string | null }[],
+) {
+  const sprintChange = changes.find((c) => c.field === 'Sprint')
+  if (!sprintChange) return
+  const ids = [sprintChange.from, sprintChange.to].filter((id): id is string => !!id)
+  if (ids.length === 0) return
+  const { data: sprints } = await supabase.from('sprints').select('id, name').in('id', ids)
+  const nameById = new Map((sprints ?? []).map((s) => [s.id, s.name]))
+  sprintChange.from = sprintChange.from ? (nameById.get(sprintChange.from) ?? sprintChange.from) : null
+  sprintChange.to = sprintChange.to ? (nameById.get(sprintChange.to) ?? sprintChange.to) : null
+}
+
+async function notifyIssueUpdated({
+  supabase, recipientId, updaterId, issue, projectId, changes,
+}: {
+  supabase: ReturnType<typeof createAdminClient>
+  recipientId: string
+  updaterId: string
+  issue: Issue
+  projectId: string
+  changes: { field: string; from: string | null; to: string | null }[]
+}) {
+  try {
+    const [{ data: recipient }, { data: updater }] = await Promise.all([
+      supabase.from('profiles').select('email, full_name').eq('id', recipientId).single(),
+      supabase.from('profiles').select('full_name').eq('id', updaterId).single(),
+    ])
+    if (!recipient?.email) return
+    await sendIssueUpdatedNotification({
+      toEmail: recipient.email,
+      toName: recipient.full_name ?? recipient.email,
+      updatedByName: updater?.full_name ?? 'Alguien',
+      issueKey: issue.key,
+      issueTitle: issue.title,
+      issueId: issue.id,
+      projectId,
+      changes,
+    })
+  } catch (err) {
+    console.error('[notifyIssueUpdated]', err)
   }
 }

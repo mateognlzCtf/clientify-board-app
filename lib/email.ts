@@ -191,6 +191,72 @@ export async function sendPlatformInviteNotification({
   })
 }
 
+export async function sendIssueUpdatedNotification({
+  toEmail,
+  toName,
+  updatedByName,
+  issueKey,
+  issueTitle,
+  issueId,
+  projectId,
+  changes,
+}: {
+  toEmail: string
+  toName: string
+  updatedByName: string
+  issueKey: string
+  issueTitle: string
+  issueId: string
+  projectId: string
+  changes: { field: string; from: string | null; to: string | null }[]
+}) {
+  await sendEvent({
+    event: 'issue.updated',
+    toEmail,
+    toName,
+    updatedByName,
+    issueKey,
+    issueTitle,
+    changes,
+    issueUrl: `${APP_URL}/project/${projectId}/issue/${issueId}`,
+    projectUrl: `${APP_URL}/project/${projectId}/list`,
+    projectId,
+  })
+}
+
+export async function sendCommentNotification({
+  toEmail,
+  toName,
+  authorName,
+  issueKey,
+  issueTitle,
+  issueId,
+  projectId,
+  commentSnippet,
+}: {
+  toEmail: string
+  toName: string
+  authorName: string
+  issueKey: string
+  issueTitle: string
+  issueId: string
+  projectId: string
+  commentSnippet: string
+}) {
+  await sendEvent({
+    event: 'comment.created',
+    toEmail,
+    toName,
+    authorName,
+    issueKey,
+    issueTitle,
+    commentSnippet,
+    issueUrl: `${APP_URL}/project/${projectId}/issue/${issueId}`,
+    projectUrl: `${APP_URL}/project/${projectId}/list`,
+    projectId,
+  })
+}
+
 export async function sendMentionNotification({
   toEmail,
   toName,

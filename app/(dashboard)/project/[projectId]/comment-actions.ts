@@ -10,7 +10,7 @@ import {
 } from '@/services/comments.service'
 import type { CommentWithAuthor } from '@/types/comment.types'
 import type { JSONContent } from '@tiptap/core'
-import { sendMentionNotification } from '@/lib/email'
+import { sendMentionNotification, sendCommentNotification } from '@/lib/email'
 import { extractStoragePaths, COMMENT_IMAGES_BUCKET } from '@/lib/utils/storage'
 
 // Server action boundary: content is transported as a JSON string to avoid
@@ -49,18 +49,14 @@ export async function createCommentAction(
   const { data, error } = await createCommentService(supabase, user.id, { issue_id: input.issue_id, content })
   if (error || !data) return { data: null, error }
 
-  // Fire mention notifications in the background (don't block the response)
-  void sendMentionEmails({ supabase, content, authorId: user.id, issueId: input.issue_id, projectId: input.projectId })
+  // Fire mention + comment notifications in the background (don't block the response)
+  void sendCommentEmails({ supabase, content, authorId: user.id, issueId: input.issue_id, projectId: input.projectId })
 
   return { data: { ...data, contentJson: JSON.stringify(data.content) }, error: null }
 }
 
-async function sendMentionEmails({
-  supabase,
-  content,
-  authorId,
-  issueId,
-  projectId,
+async function sendCommentEmails({
+  supabase, content, authorId, issueId, projectId,
 }: {
   supabase: ReturnType<typeof createAdminClient>
   content: JSONContent
@@ -70,24 +66,25 @@ async function sendMentionEmails({
 }) {
   try {
     const mentionedIds = extractMentionIds(content)
-    if (mentionedIds.length === 0) return
-
-    // Fetch author name, issue details, and mentioned users' emails in parallel
-    const [{ data: authorProfile }, { data: issue }, { data: mentionedProfiles }] = await Promise.all([
+    const [{ data: author }, { data: issue }] = await Promise.all([
       supabase.from('profiles').select('full_name').eq('id', authorId).single(),
-      supabase.from('issues').select('key, title').eq('id', issueId).single(),
-      supabase.from('profiles').select('id, email, full_name').in('id', mentionedIds),
+      supabase.from('issues').select('key, title, assignee_id, reporter_id').eq('id', issueId).single(),
     ])
+    if (!issue) return
 
-    if (!issue || !mentionedProfiles) return
-
-    const authorName = authorProfile?.full_name ?? 'Alguien'
+    const authorName = author?.full_name ?? 'Alguien'
     const commentSnippet = extractTextSnippet(content)
 
-    await Promise.all(
-      mentionedProfiles
-        .filter((p) => p.id !== authorId) // don't notify self-mentions
-        .map((p) =>
+    // 1) Mention notifications (excluding self)
+    const mentionRecipientIds = mentionedIds.filter((id) => id !== authorId)
+    if (mentionRecipientIds.length > 0) {
+      const { data: mentionedProfiles } = await supabase
+        .from('profiles')
+        .select('id, email, full_name')
+        .in('id', mentionRecipientIds)
+
+      await Promise.all(
+        (mentionedProfiles ?? []).map((p) =>
           sendMentionNotification({
             toEmail: p.email,
             toName: p.full_name ?? p.email,
@@ -99,9 +96,38 @@ async function sendMentionEmails({
             commentSnippet,
           })
         )
-    )
+      )
+    }
+
+    // 2) New-comment notifications to assignee + reporter (skip author and anyone already mentioned)
+    const commentRecipients = new Set<string>()
+    if (issue.assignee_id && issue.assignee_id !== authorId) commentRecipients.add(issue.assignee_id)
+    if (issue.reporter_id && issue.reporter_id !== authorId) commentRecipients.add(issue.reporter_id)
+    for (const id of mentionRecipientIds) commentRecipients.delete(id)
+
+    if (commentRecipients.size > 0) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, email, full_name')
+        .in('id', Array.from(commentRecipients))
+
+      await Promise.all(
+        (profiles ?? []).map((p) =>
+          sendCommentNotification({
+            toEmail: p.email,
+            toName: p.full_name ?? p.email,
+            authorName,
+            issueKey: issue.key,
+            issueTitle: issue.title,
+            issueId,
+            projectId,
+            commentSnippet,
+          })
+        )
+      )
+    }
   } catch (err) {
-    console.error('[sendMentionEmails]', err)
+    console.error('[sendCommentEmails]', err)
   }
 }
 
@@ -121,14 +147,20 @@ function extractMentionIds(content: JSONContent): string[] {
 /** Extracts a plain-text snippet (max 200 chars) from Tiptap JSON for the email body. */
 function extractTextSnippet(content: JSONContent, max = 200): string {
   const parts: string[] = []
+  let imageCount = 0
   function walk(node: JSONContent) {
     if (node.type === 'text') parts.push(node.text ?? '')
     else if (node.type === 'mention') parts.push(`@${node.attrs?.label ?? ''}`)
+    else if (node.type === 'image') imageCount++
     node.content?.forEach(walk)
   }
   walk(content)
   const text = parts.join('').trim()
-  return text.length > max ? text.slice(0, max) + '…' : text
+  const truncated = text.length > max ? text.slice(0, max) + '…' : text
+  if (imageCount > 0) {
+    return truncated ? `${truncated} [📷 image]` : `📷 image`
+  }
+  return truncated
 }
 
 export async function deleteCommentAction(
