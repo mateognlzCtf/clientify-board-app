@@ -24,6 +24,28 @@ interface Props {
   labels: ProjectLabel[]
 }
 
+const COLOR_PALETTE = [
+  '#3b82f6', // blue
+  '#10b981', // emerald
+  '#ef4444', // red
+  '#f59e0b', // amber
+  '#8b5cf6', // violet
+  '#ec4899', // pink
+  '#14b8a6', // teal
+  '#f97316', // orange
+  '#6366f1', // indigo
+  '#84cc16', // lime
+  '#06b6d4', // cyan
+  '#a855f7', // purple
+]
+
+function pickUnusedColor(usedColors: string[]): string {
+  const used = new Set(usedColors.map((c) => c.toLowerCase()))
+  const available = COLOR_PALETTE.filter((c) => !used.has(c.toLowerCase()))
+  const pool = available.length > 0 ? available : COLOR_PALETTE
+  return pool[Math.floor(Math.random() * pool.length)]
+}
+
 export function SettingsClient({ projectId, epics: initialEpics, statuses: initialStatuses, types: initialTypes, labels: initialLabels }: Props) {
   const router = useRouter()
   const { toast } = useToast()
@@ -153,7 +175,7 @@ function EpicsManager({
   const [editColor, setEditColor] = useState('#6366f1')
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
-  const [newColor, setNewColor] = useState('#6366f1')
+  const [newColor, setNewColor] = useState(() => pickUnusedColor(epics.map((e) => e.color)))
   const [loading, setLoading] = useState(false)
 
   async function handleCreate() {
@@ -162,9 +184,10 @@ function EpicsManager({
     const { data, error } = await createEpicSettingsAction(projectId, newName.trim().toUpperCase(), newColor)
     setLoading(false)
     if (error || !data) { toast(error ?? 'Error', 'error'); return }
-    setEpics((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
+    const next = [...epics, data].sort((a, b) => a.name.localeCompare(b.name))
+    setEpics(next)
     setNewName('')
-    setNewColor('#6366f1')
+    setNewColor(pickUnusedColor(next.map((e) => e.color)))
     toast('Epic created.', 'success')
     refresh()
   }
@@ -621,7 +644,7 @@ function LabelsManager({
   const [editColor, setEditColor] = useState('#6366f1')
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
-  const [newColor, setNewColor] = useState('#6366f1')
+  const [newColor, setNewColor] = useState(() => pickUnusedColor(labels.map((l) => l.color)))
   const [loading, setLoading] = useState(false)
 
   async function handleCreate() {
@@ -630,9 +653,10 @@ function LabelsManager({
     const { data, error } = await createLabelAction(projectId, newName.trim(), newColor)
     setLoading(false)
     if (error || !data) { toast(error ?? 'Error', 'error'); return }
-    setLabels((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
+    const next = [...labels, data].sort((a, b) => a.name.localeCompare(b.name))
+    setLabels(next)
     setNewName('')
-    setNewColor('#6366f1')
+    setNewColor(pickUnusedColor(next.map((l) => l.color)))
     toast('Label created.', 'success')
     refresh()
   }
