@@ -18,11 +18,12 @@ interface Props {
   issue: IssueWithDetails
   projectId: string
   currentUserId: string
+  canDelete?: boolean
   sprints: Sprint[]
   members: ProjectMemberPreview[]
 }
 
-export function IssuePageClient({ issue: initialIssue, projectId, currentUserId, sprints, members }: Props) {
+export function IssuePageClient({ issue: initialIssue, projectId, currentUserId, canDelete = false, sprints, members }: Props) {
   const router = useRouter()
   const { toast } = useToast()
 
@@ -93,6 +94,7 @@ export function IssuePageClient({ issue: initialIssue, projectId, currentUserId,
           issue={issue}
           currentUserId={currentUserId}
           projectId={projectId}
+          canDelete={canDelete}
           members={members}
           sprints={sprints}
           onEdit={() => setEditOpen(true)}

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
-import { Trash2, Clock, ExternalLink, ChevronDown, Check, X, Tag, Plus, Link2 } from 'lucide-react'
+import { Trash2, Clock, ExternalLink, ChevronDown, Check, X, Tag, Plus, Link2, MoreHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { TypeIcon } from '@/components/issues/TypeIcon'
 import { CommentSection, ImageLightbox } from '@/components/issues/CommentSection'
@@ -70,6 +70,7 @@ export function IssueDetail({
   const [dueDateRaw, setDueDateRaw] = useState<string>(issue.due_date ?? '')
   const [startDateRaw, setStartDateRaw] = useState<string>(issue.start_date ?? '')
   const [saving, setSaving] = useState<string | null>(null)
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false)
 
   // Linked work items
   const [showLinkedSection, setShowLinkedSection] = useState(false)
@@ -627,21 +628,41 @@ export function IssueDetail({
           </div>
         )}
 
-        {/* Actions */}
-        {canDelete && (
-          <div className="flex gap-2">
-            <Button onClick={onDelete} variant="secondary" size="sm" className="text-red-600 hover:bg-red-50 hover:border-red-200">
-              <Trash2 size={13} /> Delete
-            </Button>
-          </div>
-        )}
-
         {/* Comments */}
         <CommentSection issueId={issue.id} projectId={projectId} currentUserId={currentUserId} members={members} />
       </div>
 
       {/* ── RIGHT PANEL ── */}
       <div className="w-56 shrink-0 border-l border-gray-100 pl-6 space-y-5">
+
+        {/* Actions menu */}
+        {canDelete && (
+          <div className="flex justify-end relative">
+            <button
+              type="button"
+              onClick={() => setActionsMenuOpen((o) => !o)}
+              className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+              title="Actions"
+            >
+              <MoreHorizontal size={16} />
+            </button>
+            {actionsMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setActionsMenuOpen(false)} />
+                <div className="absolute right-0 top-8 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[140px]">
+                  <button
+                    type="button"
+                    onClick={() => { setActionsMenuOpen(false); onDelete() }}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 text-left"
+                  >
+                    <Trash2 size={12} />
+                    Delete
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Status */}
         <div className="space-y-1">

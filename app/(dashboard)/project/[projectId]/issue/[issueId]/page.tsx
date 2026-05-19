@@ -27,12 +27,16 @@ export default async function IssueFullPage({ params }: Props) {
 
   if (error || !issue) notFound()
 
+  const currentMember = (members ?? []).find((m) => m.user_id === user.id)
+  const canDelete = currentMember?.role === 'owner' || currentMember?.role === 'admin'
+
   return (
     <div className="w-full h-full px-8 py-6">
       <IssuePageClient
         issue={issue}
         projectId={projectId}
         currentUserId={user.id}
+        canDelete={canDelete}
         sprints={sprints ?? []}
         members={members ?? []}
       />
