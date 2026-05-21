@@ -31,8 +31,9 @@ export async function proxy(request: NextRequest) {
   const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/register') || pathname.startsWith('/forgot-password')
   const isPublicAction = pathname.startsWith('/admin-action') || pathname.startsWith('/auth/callback') || pathname.startsWith('/accept-invite')
   const isResetPassword = pathname.startsWith('/reset-password')
+  const isApiRoute = pathname.startsWith('/api/')
 
-  if (!user && !isAuthRoute && !isPublicAction && !isResetPassword && pathname !== '/') {
+  if (!user && !isAuthRoute && !isPublicAction && !isResetPassword && !isApiRoute && pathname !== '/') {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
