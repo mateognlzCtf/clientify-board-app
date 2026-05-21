@@ -91,7 +91,15 @@ export async function POST(request: NextRequest) {
     dueDate = d.toISOString().slice(0, 10)
   }
 
-  // 8. Create the ticket (DB trigger auto-generates the key)
+  // 8. Find active sprint (if any) — ticket goes there, otherwise to backlog
+  const { data: activeSprint } = await supabase
+    .from('sprints')
+    .select('id')
+    .eq('project_id', projectId)
+    .eq('status', 'active')
+    .maybeSingle()
+
+  // 9. Create the ticket (DB trigger auto-generates the key)
   const { data: issue, error } = await createIssue(supabase, reporter.id, {
     project_id: projectId,
     title: body.title.trim(),
@@ -100,6 +108,7 @@ export async function POST(request: NextRequest) {
     type: (body.type as 'bug' | 'feature' | 'task' | 'improvement') ?? 'task',
     assignee_id: assigneeId ?? undefined,
     due_date: dueDate ?? undefined,
+    sprint_id: activeSprint?.id ?? undefined,
     slack_thread: body.slackThread ?? undefined,
   })
 
