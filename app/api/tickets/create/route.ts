@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     assigneeEmail?: string
     priority?: string
     type?: string
-    dueInDays?: number
+    dueInDays?: number | string
     slackThread?: string
   }
   try {
@@ -82,11 +82,12 @@ export async function POST(request: NextRequest) {
     assignee = assigneeData
   }
 
-  // 7. Compute due date if dueInDays provided
+  // 7. Compute due date if dueInDays provided (accepts number or numeric string)
   let dueDate: string | null = null
-  if (typeof body.dueInDays === 'number' && body.dueInDays > 0) {
+  const dueDays = typeof body.dueInDays === 'string' ? parseInt(body.dueInDays, 10) : body.dueInDays
+  if (typeof dueDays === 'number' && !isNaN(dueDays) && dueDays > 0) {
     const d = new Date()
-    d.setDate(d.getDate() + body.dueInDays)
+    d.setDate(d.getDate() + dueDays)
     dueDate = d.toISOString().slice(0, 10)
   }
 
