@@ -79,15 +79,48 @@ function buildEditorExtensions(
   ]
 }
 
-/** Parse a stored description: JSON string → JSONContent, plain text → paragraph node */
+/** Builds inline content for a plain-text line, detecting URLs and turning them into link nodes. */
+function buildLineContent(line: string): JSONContent[] {
+  const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/g
+  const parts: JSONContent[] = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = urlRegex.exec(line)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: 'text', text: line.slice(lastIndex, match.index) })
+    }
+    const url = match[0]
+    const href = url.startsWith('www.') ? `https://${url}` : url
+    parts.push({
+      type: 'text',
+      text: url,
+      marks: [{ type: 'link', attrs: { href, target: '_blank', rel: 'noopener noreferrer' } }],
+    })
+    lastIndex = match.index + url.length
+  }
+  if (lastIndex < line.length) {
+    parts.push({ type: 'text', text: line.slice(lastIndex) })
+  }
+  return parts.length > 0 ? parts : [{ type: 'text', text: line }]
+}
+
+/** Parse a stored description: JSON string → JSONContent, plain text → paragraph nodes with URL detection */
 export function parseDescription(raw: string | null): JSONContent | null {
   if (!raw) return null
   try {
     const parsed = JSON.parse(raw)
     if (parsed && parsed.type === 'doc') return parsed as JSONContent
   } catch { /* plain text */ }
-  // Wrap plain text in a doc so Tiptap can render it
-  return { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: raw }] }] }
+  // Plain text: split by newlines so line breaks render as separate paragraphs
+  const lines = raw.split('\n')
+  return {
+    type: 'doc',
+    content: lines.map((line) => (
+      line.length > 0
+        ? { type: 'paragraph', content: buildLineContent(line) }
+        : { type: 'paragraph' }
+    )),
+  }
 }
 
 export function renderDescriptionHTML(raw: string | null): string {
