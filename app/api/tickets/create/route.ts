@@ -99,11 +99,21 @@ export async function POST(request: NextRequest) {
     .eq('status', 'active')
     .maybeSingle()
 
-  // 9. Create the ticket (DB trigger auto-generates the key)
+  // 9. Find the first status of the project so the ticket appears on the Board
+  const { data: firstStatus } = await supabase
+    .from('project_statuses')
+    .select('name')
+    .eq('project_id', projectId)
+    .order('position', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  // 10. Create the ticket (DB trigger auto-generates the key)
   const { data: issue, error } = await createIssue(supabase, reporter.id, {
     project_id: projectId,
     title: body.title.trim(),
     description: body.description?.trim() || undefined,
+    status: (firstStatus?.name ?? 'To Do') as 'todo',
     priority: (body.priority as 'lowest' | 'low' | 'medium' | 'high' | 'highest') ?? 'medium',
     type: (body.type as 'bug' | 'feature' | 'task' | 'improvement') ?? 'task',
     assignee_id: assigneeId ?? undefined,
