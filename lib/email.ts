@@ -233,6 +233,7 @@ export async function sendCommentNotification({
   issueId,
   projectId,
   commentSnippet,
+  images,
 }: {
   toEmail: string
   toName: string
@@ -242,6 +243,7 @@ export async function sendCommentNotification({
   issueId: string
   projectId: string
   commentSnippet: string
+  images?: string[]
 }) {
   await sendEvent({
     event: 'comment.created',
@@ -251,6 +253,7 @@ export async function sendCommentNotification({
     issueKey,
     issueTitle,
     commentSnippet,
+    images: images ?? [],
     issueUrl: `${APP_URL}/project/${projectId}/issue/${issueId}`,
     projectUrl: `${APP_URL}/project/${projectId}/list`,
     projectId,
@@ -266,6 +269,7 @@ export async function sendMentionNotification({
   issueId,
   projectId,
   commentSnippet,
+  images,
 }: {
   toEmail: string
   toName: string
@@ -275,6 +279,7 @@ export async function sendMentionNotification({
   issueId: string
   projectId: string
   commentSnippet: string
+  images?: string[]
 }) {
   await sendEvent({
     event: 'comment.mentioned',
@@ -284,6 +289,7 @@ export async function sendMentionNotification({
     issueKey,
     issueTitle,
     commentSnippet,
+    images: images ?? [],
     issueUrl: `${APP_URL}/project/${projectId}/issue/${issueId}`,
     projectUrl: `${APP_URL}/project/${projectId}/list`,
     projectId,

@@ -74,6 +74,7 @@ async function sendCommentEmails({
 
     const authorName = author?.full_name ?? 'Alguien'
     const commentSnippet = extractTextSnippet(content)
+    const images = extractImageUrls(content)
 
     // 1) Mention notifications (excluding self)
     const mentionRecipientIds = mentionedIds.filter((id) => id !== authorId)
@@ -94,6 +95,7 @@ async function sendCommentEmails({
             issueId,
             projectId,
             commentSnippet,
+            images,
           })
         )
       )
@@ -122,6 +124,7 @@ async function sendCommentEmails({
             issueId,
             projectId,
             commentSnippet,
+            images,
           })
         )
       )
@@ -161,6 +164,19 @@ function extractTextSnippet(content: JSONContent, max = 200): string {
     return truncated ? `${truncated} [📷 image]` : `📷 image`
   }
   return truncated
+}
+
+/** Walks the Tiptap JSON tree and collects all image URLs (src) from image nodes. */
+function extractImageUrls(content: JSONContent): string[] {
+  const urls: string[] = []
+  function walk(node: JSONContent) {
+    if (node.type === 'image' && typeof node.attrs?.src === 'string') {
+      urls.push(node.attrs.src)
+    }
+    node.content?.forEach(walk)
+  }
+  walk(content)
+  return urls
 }
 
 export async function deleteCommentAction(
