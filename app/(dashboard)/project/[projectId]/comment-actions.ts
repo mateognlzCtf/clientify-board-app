@@ -10,7 +10,7 @@ import {
 } from '@/services/comments.service'
 import type { CommentWithAuthor } from '@/types/comment.types'
 import type { JSONContent } from '@tiptap/core'
-import { sendMentionNotification, sendCommentNotification } from '@/lib/email'
+import { sendCommentCreatedEvent, sendCommentMentionedEvent, type EventRecipient } from '@/lib/email'
 import { extractStoragePaths, COMMENT_IMAGES_BUCKET } from '@/lib/utils/storage'
 
 // Server action boundary: content is transported as a JSON string to avoid
@@ -67,68 +67,66 @@ async function sendCommentEmails({
   try {
     const mentionedIds = extractMentionIds(content)
     const [{ data: author }, { data: issue }] = await Promise.all([
-      supabase.from('profiles').select('full_name').eq('id', authorId).single(),
-      supabase.from('issues').select('key, title, assignee_id, reporter_id').eq('id', issueId).single(),
+      supabase.from('profiles').select('id, email, full_name').eq('id', authorId).single(),
+      supabase.from('issues').select('id, key, title, assignee_id, reporter_id').eq('id', issueId).single(),
     ])
-    if (!issue) return
+    if (!issue || !author) return
 
-    const authorName = author?.full_name ?? 'Alguien'
     const commentSnippet = extractTextSnippet(content)
     const images = extractImageUrls(content)
+    const actor = { id: author.id, name: author.full_name ?? author.email, email: author.email }
+    const issuePayload = { id: issue.id, key: issue.key, title: issue.title }
+    const commentPayload = { snippet: commentSnippet, images }
 
-    // 1) Mention notifications (excluding self)
+    // Resolve all profiles needed in one query
+    const profileIds = new Set<string>()
+    mentionedIds.forEach((id) => { if (id !== authorId) profileIds.add(id) })
+    if (issue.assignee_id && issue.assignee_id !== authorId) profileIds.add(issue.assignee_id)
+    if (issue.reporter_id && issue.reporter_id !== authorId) profileIds.add(issue.reporter_id)
+
+    const profiles = profileIds.size > 0
+      ? (await supabase.from('profiles').select('id, email, full_name').in('id', Array.from(profileIds))).data ?? []
+      : []
+    const profileById = new Map(profiles.map((p) => [p.id, p]))
+
+    // 1) Mention event — recipients are the mentioned users (excluding author)
     const mentionRecipientIds = mentionedIds.filter((id) => id !== authorId)
     if (mentionRecipientIds.length > 0) {
-      const { data: mentionedProfiles } = await supabase
-        .from('profiles')
-        .select('id, email, full_name')
-        .in('id', mentionRecipientIds)
+      const mentionRecipients: EventRecipient[] = mentionRecipientIds
+        .map((id) => profileById.get(id))
+        .filter((p): p is { id: string; email: string; full_name: string | null } => !!p)
+        .map((p) => ({ email: p.email, name: p.full_name ?? p.email, role: 'mentioned' }))
 
-      await Promise.all(
-        (mentionedProfiles ?? []).map((p) =>
-          sendMentionNotification({
-            toEmail: p.email,
-            toName: p.full_name ?? p.email,
-            mentionedByName: authorName,
-            issueKey: issue.key,
-            issueTitle: issue.title,
-            issueId,
-            projectId,
-            commentSnippet,
-            images,
-          })
-        )
-      )
+      await sendCommentMentionedEvent({
+        issue: issuePayload,
+        actor,
+        comment: commentPayload,
+        recipients: mentionRecipients,
+        projectId,
+      })
     }
 
-    // 2) New-comment notifications to assignee + reporter (skip author and anyone already mentioned)
-    const commentRecipients = new Set<string>()
-    if (issue.assignee_id && issue.assignee_id !== authorId) commentRecipients.add(issue.assignee_id)
-    if (issue.reporter_id && issue.reporter_id !== authorId) commentRecipients.add(issue.reporter_id)
-    for (const id of mentionRecipientIds) commentRecipients.delete(id)
+    // 2) Comment.created event — recipients are assignee + reporter (excluding author + already mentioned)
+    const commentRecipientIds = new Set<string>()
+    if (issue.assignee_id && issue.assignee_id !== authorId) commentRecipientIds.add(issue.assignee_id)
+    if (issue.reporter_id && issue.reporter_id !== authorId) commentRecipientIds.add(issue.reporter_id)
+    for (const id of mentionRecipientIds) commentRecipientIds.delete(id)
 
-    if (commentRecipients.size > 0) {
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, email, full_name')
-        .in('id', Array.from(commentRecipients))
-
-      await Promise.all(
-        (profiles ?? []).map((p) =>
-          sendCommentNotification({
-            toEmail: p.email,
-            toName: p.full_name ?? p.email,
-            authorName,
-            issueKey: issue.key,
-            issueTitle: issue.title,
-            issueId,
-            projectId,
-            commentSnippet,
-            images,
-          })
-        )
-      )
+    const commentRecipients: EventRecipient[] = []
+    for (const id of commentRecipientIds) {
+      const p = profileById.get(id)
+      if (!p) continue
+      const role: 'assignee' | 'reporter' = id === issue.assignee_id ? 'assignee' : 'reporter'
+      commentRecipients.push({ email: p.email, name: p.full_name ?? p.email, role })
     }
+
+    await sendCommentCreatedEvent({
+      issue: issuePayload,
+      actor,
+      comment: commentPayload,
+      recipients: commentRecipients,
+      projectId,
+    })
   } catch (err) {
     console.error('[sendCommentEmails]', err)
   }

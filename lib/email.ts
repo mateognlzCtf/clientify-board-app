@@ -15,64 +15,56 @@ async function sendEvent(payload: Record<string, unknown>) {
   }
 }
 
-export async function sendAssignmentNotification({
-  toEmail,
-  toName,
-  assignedByName,
-  issueKey,
-  issueTitle,
-  issueId,
+export type EventRecipient = { email: string; name: string; role: 'reporter' | 'assignee' | 'mentioned' }
+export type EventActor = { id: string; name: string; email: string }
+export type EventIssue = { id: string; key: string; title: string }
+
+export async function sendAssignmentEvent({
+  issue,
+  actor,
+  recipients,
   projectId,
 }: {
-  toEmail: string
-  toName: string
-  assignedByName: string
-  issueKey: string
-  issueTitle: string
-  issueId: string
+  issue: EventIssue
+  actor: EventActor
+  recipients: EventRecipient[]
   projectId: string
 }) {
   await sendEvent({
     event: 'issue.assigned',
-    toEmail,
-    toName,
-    assignedByName,
-    issueKey,
-    issueTitle,
-    issueUrl: `${APP_URL}/project/${projectId}/issue/${issueId}`,
+    issue: {
+      ...issue,
+      url: `${APP_URL}/project/${projectId}/issue/${issue.id}`,
+    },
+    actor,
+    recipients,
     projectUrl: `${APP_URL}/project/${projectId}/list`,
     projectId,
   })
 }
 
-export async function sendStatusChangeNotification({
-  toEmail,
-  toName,
-  changedByName,
-  issueKey,
-  issueTitle,
-  issueId,
-  newStatus,
+export async function sendStatusChangeEvent({
+  issue,
+  actor,
+  changes,
+  recipients,
   projectId,
 }: {
-  toEmail: string
-  toName: string
-  changedByName: string
-  issueKey: string
-  issueTitle: string
-  issueId: string
-  newStatus: string
+  issue: EventIssue
+  actor: EventActor
+  changes: { from: string | null; to: string }
+  recipients: EventRecipient[]
   projectId: string
 }) {
   await sendEvent({
     event: 'issue.status_changed',
-    toEmail,
-    toName,
-    changedByName,
-    issueKey,
-    issueTitle,
-    newStatus,
-    issueUrl: `${APP_URL}/project/${projectId}/issue/${issueId}`,
+    issue: {
+      ...issue,
+      url: `${APP_URL}/project/${projectId}/issue/${issue.id}`,
+    },
+    actor,
+    changes,
+    recipients,
     projectUrl: `${APP_URL}/project/${projectId}/list`,
     projectId,
   })
@@ -191,106 +183,82 @@ export async function sendPlatformInviteNotification({
   })
 }
 
-export async function sendIssueUpdatedNotification({
-  toEmail,
-  toName,
-  updatedByName,
-  issueKey,
-  issueTitle,
-  issueId,
-  projectId,
+export async function sendIssueUpdatedEvent({
+  issue,
+  actor,
   changes,
+  recipients,
+  projectId,
 }: {
-  toEmail: string
-  toName: string
-  updatedByName: string
-  issueKey: string
-  issueTitle: string
-  issueId: string
-  projectId: string
+  issue: EventIssue
+  actor: EventActor
   changes: { field: string; from: string | null; to: string | null }[]
+  recipients: EventRecipient[]
+  projectId: string
 }) {
   await sendEvent({
     event: 'issue.updated',
-    toEmail,
-    toName,
-    updatedByName,
-    issueKey,
-    issueTitle,
+    issue: {
+      ...issue,
+      url: `${APP_URL}/project/${projectId}/issue/${issue.id}`,
+    },
+    actor,
     changes,
-    issueUrl: `${APP_URL}/project/${projectId}/issue/${issueId}`,
+    recipients,
     projectUrl: `${APP_URL}/project/${projectId}/list`,
     projectId,
   })
 }
 
-export async function sendCommentNotification({
-  toEmail,
-  toName,
-  authorName,
-  issueKey,
-  issueTitle,
-  issueId,
+export async function sendCommentCreatedEvent({
+  issue,
+  actor,
+  comment,
+  recipients,
   projectId,
-  commentSnippet,
-  images,
 }: {
-  toEmail: string
-  toName: string
-  authorName: string
-  issueKey: string
-  issueTitle: string
-  issueId: string
+  issue: EventIssue
+  actor: EventActor
+  comment: { snippet: string; images: string[] }
+  recipients: EventRecipient[]
   projectId: string
-  commentSnippet: string
-  images?: string[]
 }) {
   await sendEvent({
     event: 'comment.created',
-    toEmail,
-    toName,
-    authorName,
-    issueKey,
-    issueTitle,
-    commentSnippet,
-    images: images ?? [],
-    issueUrl: `${APP_URL}/project/${projectId}/issue/${issueId}`,
+    issue: {
+      ...issue,
+      url: `${APP_URL}/project/${projectId}/issue/${issue.id}`,
+    },
+    actor,
+    comment,
+    recipients,
     projectUrl: `${APP_URL}/project/${projectId}/list`,
     projectId,
   })
 }
 
-export async function sendMentionNotification({
-  toEmail,
-  toName,
-  mentionedByName,
-  issueKey,
-  issueTitle,
-  issueId,
+export async function sendCommentMentionedEvent({
+  issue,
+  actor,
+  comment,
+  recipients,
   projectId,
-  commentSnippet,
-  images,
 }: {
-  toEmail: string
-  toName: string
-  mentionedByName: string
-  issueKey: string
-  issueTitle: string
-  issueId: string
+  issue: EventIssue
+  actor: EventActor
+  comment: { snippet: string; images: string[] }
+  recipients: EventRecipient[]
   projectId: string
-  commentSnippet: string
-  images?: string[]
 }) {
   await sendEvent({
     event: 'comment.mentioned',
-    toEmail,
-    toName,
-    mentionedByName,
-    issueKey,
-    issueTitle,
-    commentSnippet,
-    images: images ?? [],
-    issueUrl: `${APP_URL}/project/${projectId}/issue/${issueId}`,
+    issue: {
+      ...issue,
+      url: `${APP_URL}/project/${projectId}/issue/${issue.id}`,
+    },
+    actor,
+    comment,
+    recipients,
     projectUrl: `${APP_URL}/project/${projectId}/list`,
     projectId,
   })
