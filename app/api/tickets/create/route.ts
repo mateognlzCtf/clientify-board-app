@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createIssue } from '@/services/issues.service'
-import { sendAssignmentEvent } from '@/lib/email'
+import { sendAssignmentNotification } from '@/lib/email'
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
 
@@ -126,15 +126,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error ?? 'Error creating ticket' }, { status: 500 })
   }
 
-  // 9. Fire assignment event (if assigned)
-  if (assignee) {
-    const recipients = assignee.id !== reporter.id
-      ? [{ email: assignee.email, name: assignee.full_name ?? assignee.email, role: 'assignee' as const }]
-      : []
-    void sendAssignmentEvent({
-      issue: { id: issue.id, key: issue.key, title: issue.title },
-      actor: { id: reporter.id, name: reporter.full_name ?? reporter.email, email: reporter.email },
-      recipients,
+  // 9. Fire assignment notification (if assigned and different from reporter)
+  if (assignee && assignee.id !== reporter.id) {
+    void sendAssignmentNotification({
+      toEmail: assignee.email,
+      toName: assignee.full_name ?? assignee.email,
+      assignedByName: reporter.full_name ?? reporter.email,
+      issueKey: issue.key,
+      issueTitle: issue.title,
+      issueId: issue.id,
       projectId,
     })
   }
