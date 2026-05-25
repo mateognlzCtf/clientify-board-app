@@ -783,6 +783,10 @@ function DraggableIssueRow({
   const inSprint = currentSprintId !== null
   const otherSprints = sprints.filter((s) => s.id !== currentSprintId && s.status !== 'completed')
 
+  const MAX_VISIBLE_LABELS = 2
+  const visibleLabels = issue.labels?.slice(0, MAX_VISIBLE_LABELS) ?? []
+  const hiddenLabels = issue.labels?.slice(MAX_VISIBLE_LABELS) ?? []
+
   return (
     <div
       ref={setNodeRef}
@@ -809,47 +813,76 @@ function DraggableIssueRow({
       <span className="flex-1 text-left text-sm text-gray-800 font-medium truncate">
         {issue.title}
       </span>
-      {issue.epic && (
-        <span
-          className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 hidden sm:inline-flex"
-          style={{ backgroundColor: issue.epic.color + '22', color: issue.epic.color }}
-        >
-          {issue.epic.name}
-        </span>
-      )}
-      {issue.labels?.map((label) => (
-        <span
-          key={label.id}
-          className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 hidden md:inline-flex"
-          style={{ backgroundColor: label.color + '22', color: label.color }}
-        >
-          {label.name}
-        </span>
-      ))}
 
-      <div className="flex items-center gap-2 shrink-0">
-        {issue.due_date && (
-          <span className={cn(
-            'text-[11px] font-medium flex items-center gap-1',
-            issue.due_date < new Date().toISOString().slice(0, 10) && !projectStatuses.find(s => s.name === issue.status)?.is_completed ? 'text-red-500' : 'text-gray-400'
-          )}>
-            <Calendar size={11} />
-            {formatDate(issue.due_date)}
+      {/* Epic + labels — variable width, sit between title and fixed meta columns */}
+      <div className="hidden sm:flex items-center gap-1 shrink-0 overflow-hidden max-w-[240px]">
+        {issue.epic && (
+          <span
+            className="text-[10px] font-semibold px-2 py-0.5 rounded-full truncate max-w-[120px]"
+            style={{ backgroundColor: issue.epic.color + '22', color: issue.epic.color }}
+            title={issue.epic.name}
+          >
+            {issue.epic.name}
           </span>
         )}
-        <StatusBadge status={issue.status} color={projectStatuses.find(s => s.name === issue.status)?.color ?? undefined} />
-        <PriorityIcon priority={issue.priority} />
-        {issue.assignee && (
-          <div className={`h-5 w-5 rounded-full flex items-center justify-center shrink-0 ${issue.assignee.status !== 'active' ? 'bg-gray-400' : 'bg-blue-500'}`} title={`${issue.assignee.full_name ?? ''}${issue.assignee.status !== 'active' ? ' (Inactive)' : ''}`}>
-            {issue.assignee.avatar_url ? (
-              <img src={issue.assignee.avatar_url} className={`h-5 w-5 rounded-full object-cover ${issue.assignee.status !== 'active' ? 'grayscale opacity-60' : ''}`} alt="" />
-            ) : (
-              <span className="text-[8px] font-bold text-white">
-                {issue.assignee.full_name?.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase()}
-              </span>
-            )}
-          </div>
+        {visibleLabels.map((label) => (
+          <span
+            key={label.id}
+            className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 hidden md:inline-flex truncate max-w-[100px]"
+            style={{ backgroundColor: label.color + '22', color: label.color }}
+            title={label.name}
+          >
+            {label.name}
+          </span>
+        ))}
+        {hiddenLabels.length > 0 && (
+          <span
+            className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 hidden md:inline-flex bg-gray-100 text-gray-600"
+            title={hiddenLabels.map((l) => l.name).join(', ')}
+          >
+            +{hiddenLabels.length}
+          </span>
         )}
+      </div>
+
+      <div className="flex items-center gap-2 shrink-0">
+        {/* Due date — fixed slot */}
+        <div className="w-24 flex justify-end shrink-0">
+          {issue.due_date && (
+            <span className={cn(
+              'text-[11px] font-medium flex items-center gap-1',
+              issue.due_date < new Date().toISOString().slice(0, 10) && !projectStatuses.find(s => s.name === issue.status)?.is_completed ? 'text-red-500' : 'text-gray-400'
+            )}>
+              <Calendar size={11} />
+              {formatDate(issue.due_date)}
+            </span>
+          )}
+        </div>
+
+        {/* Status — fixed slot */}
+        <div className="w-24 flex justify-end shrink-0">
+          <StatusBadge status={issue.status} color={projectStatuses.find(s => s.name === issue.status)?.color ?? undefined} />
+        </div>
+
+        {/* Priority — fixed slot */}
+        <div className="w-5 flex justify-center shrink-0">
+          <PriorityIcon priority={issue.priority} />
+        </div>
+
+        {/* Assignee — fixed slot (reserves space even when unassigned) */}
+        <div className="w-5 flex justify-center shrink-0">
+          {issue.assignee && (
+            <div className={`h-5 w-5 rounded-full flex items-center justify-center ${issue.assignee.status !== 'active' ? 'bg-gray-400' : 'bg-blue-500'}`} title={`${issue.assignee.full_name ?? ''}${issue.assignee.status !== 'active' ? ' (Inactive)' : ''}`}>
+              {issue.assignee.avatar_url ? (
+                <img src={issue.assignee.avatar_url} className={`h-5 w-5 rounded-full object-cover ${issue.assignee.status !== 'active' ? 'grayscale opacity-60' : ''}`} alt="" />
+              ) : (
+                <span className="text-[8px] font-bold text-white">
+                  {issue.assignee.full_name?.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase()}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Move menu */}
         <div className="relative opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
