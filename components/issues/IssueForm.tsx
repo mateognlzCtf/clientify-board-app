@@ -212,6 +212,8 @@ export function IssueForm(props: IssueFormProps) {
             <option value="">Unassigned</option>
             {props.members
               .filter((m) => (m.profile?.status ?? 'active') === 'active' || m.user_id === assigneeId)
+              .slice()
+              .sort((a, b) => (a.profile?.full_name ?? a.user_id).localeCompare(b.profile?.full_name ?? b.user_id, 'es', { sensitivity: 'base' }))
               .map((m) => {
                 const inactive = (m.profile?.status ?? 'active') !== 'active'
                 return (
