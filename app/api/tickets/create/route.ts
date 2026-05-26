@@ -127,39 +127,41 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error ?? 'Error creating ticket' }, { status: 500 })
   }
 
-  // 9. Fire issue.created event (if assigned and different from reporter).
-  // after() guarantees the webhook fetch completes on Vercel serverless.
-  if (assignee && assignee.id !== reporter.id) {
-    const assigneeForEvent = assignee
-    const reporterForEvent = reporter
-    const issueForEvent = issue
-    const projectIdForEvent = projectId
-    after(async () => {
-      try {
-        await sendIssueCreatedEvent({
-          actor: {
-            id: reporterForEvent.id,
-            name: reporterForEvent.full_name ?? reporterForEvent.email,
-            email: reporterForEvent.email,
-          },
-          issue: {
-            id: issueForEvent.id,
-            key: issueForEvent.key,
-            title: issueForEvent.title,
-          },
-          recipients: [{
+  // 9. Always fire issue.created so n8n receives the event (Slack channel, audit
+  // logs, etc.) — recipients[] is empty when assignee == reporter or no
+  // assignee. after() guarantees the webhook fetch completes on Vercel.
+  const reporterForEvent = reporter
+  const assigneeForEvent = assignee
+  const issueForEvent = issue
+  const projectIdForEvent = projectId
+  after(async () => {
+    try {
+      const recipients = (assigneeForEvent && assigneeForEvent.id !== reporterForEvent.id)
+        ? [{
             id: assigneeForEvent.id,
             name: assigneeForEvent.full_name ?? assigneeForEvent.email,
             email: assigneeForEvent.email,
-            role: 'assignee',
-          }],
-          projectId: projectIdForEvent,
-        })
-      } catch (err) {
-        console.error('[issue.created]', err)
-      }
-    })
-  }
+            role: 'assignee' as const,
+          }]
+        : []
+      await sendIssueCreatedEvent({
+        actor: {
+          id: reporterForEvent.id,
+          name: reporterForEvent.full_name ?? reporterForEvent.email,
+          email: reporterForEvent.email,
+        },
+        issue: {
+          id: issueForEvent.id,
+          key: issueForEvent.key,
+          title: issueForEvent.title,
+        },
+        recipients,
+        projectId: projectIdForEvent,
+      })
+    } catch (err) {
+      console.error('[issue.created]', err)
+    }
+  })
 
   // 10. Return response
   return NextResponse.json({

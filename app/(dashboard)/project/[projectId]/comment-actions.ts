@@ -76,8 +76,9 @@ export async function createCommentAction(
       if (issue.reporter_id && issue.reporter_id !== authorId && !roleByRecipientId.has(issue.reporter_id)) {
         roleByRecipientId.set(issue.reporter_id, 'reporter')
       }
-      if (roleByRecipientId.size === 0) return
 
+      // Fire even when recipients is empty (commenting on your own ticket).
+      // n8n decides per channel: skip email when empty, still post to Slack.
       const profileIds = [authorId, ...roleByRecipientId.keys()]
       const { data: profiles } = await supabase
         .from('profiles')
@@ -98,7 +99,6 @@ export async function createCommentAction(
           role,
         })
       }
-      if (recipients.length === 0) return
 
       await sendCommentCreatedEvent({
         actor: {

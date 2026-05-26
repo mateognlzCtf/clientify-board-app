@@ -32,6 +32,10 @@ function withIssueUrls(issue: EventIssue, projectId: string) {
   }
 }
 
+// Events always fire when there's a real action — recipients[] can be empty so
+// n8n can still post to Slack channels, audit logs, etc. even when no one
+// would receive a direct email notification.
+
 export async function sendIssueCreatedEvent({
   actor, issue, recipients, projectId,
 }: {
@@ -40,7 +44,6 @@ export async function sendIssueCreatedEvent({
   recipients: EventRecipient[]
   projectId: string
 }) {
-  if (recipients.length === 0) return
   await sendEvent({
     event: 'issue.created',
     actor,
@@ -58,7 +61,7 @@ export async function sendIssueUpdatedEvent({
   recipients: EventRecipient[]
   projectId: string
 }) {
-  if (changes.length === 0 || recipients.length === 0) return
+  if (changes.length === 0) return
   await sendEvent({
     event: 'issue.updated',
     actor,
@@ -77,7 +80,6 @@ export async function sendCommentCreatedEvent({
   recipients: EventRecipient[]
   projectId: string
 }) {
-  if (recipients.length === 0) return
   await sendEvent({
     event: 'comment.created',
     actor,

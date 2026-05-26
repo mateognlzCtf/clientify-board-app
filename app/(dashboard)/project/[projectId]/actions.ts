@@ -44,31 +44,42 @@ export async function createIssueAction(
       await setIssueLabels(supabase, result.data.id, data.label_ids)
     }
 
-    // Notify assignee if different from creator. after() guarantees the webhook
-    // fetch completes on Vercel serverless (void promises get killed).
-    if (result.data && data.assignee_id && data.assignee_id !== user.id) {
+    // Always fire issue.created so n8n receives the event (for Slack channel
+    // posts, audit logs, etc.) even when the creator assigned the ticket to
+    // themselves. recipients[] is empty in that case — n8n decides what to do.
+    // after() keeps the Vercel function alive until the fetch completes.
+    if (result.data) {
       const issue = result.data
-      const assigneeId = data.assignee_id
+      const assigneeId = data.assignee_id ?? null
       const creatorId = user.id
       after(async () => {
         try {
+          const idsToFetch = assigneeId && assigneeId !== creatorId
+            ? [creatorId, assigneeId]
+            : [creatorId]
           const { data: profiles } = await supabase
             .from('profiles')
             .select('id, email, full_name')
-            .in('id', [assigneeId, creatorId])
+            .in('id', idsToFetch)
           const profileById = new Map((profiles ?? []).map((p) => [p.id, p]))
           const actor = profileById.get(creatorId)
-          const recipient = profileById.get(assigneeId)
-          if (!actor?.email || !recipient?.email) return
+          if (!actor?.email) return
+          const recipients: EventRecipient[] = []
+          if (assigneeId && assigneeId !== creatorId) {
+            const r = profileById.get(assigneeId)
+            if (r?.email) {
+              recipients.push({
+                id: r.id,
+                name: r.full_name ?? r.email,
+                email: r.email,
+                role: 'assignee',
+              })
+            }
+          }
           await sendIssueCreatedEvent({
             actor: { id: actor.id, name: actor.full_name ?? actor.email, email: actor.email },
             issue: { id: issue.id, key: issue.key, title: issue.title },
-            recipients: [{
-              id: recipient.id,
-              name: recipient.full_name ?? recipient.email,
-              email: recipient.email,
-              role: 'assignee',
-            }],
+            recipients,
             projectId,
           })
         } catch (err) {
@@ -149,8 +160,9 @@ export async function updateIssueAction(
         ) {
           roleByRecipientId.set(issue.reporter_id, 'reporter')
         }
-        if (roleByRecipientId.size === 0) return
 
+        // Fire even when recipients is empty (self-edit). n8n branches per
+        // channel: skip email when empty, still post to Slack channel.
         const profileIds = [updaterId, ...roleByRecipientId.keys()]
         const { data: profiles } = await supabase
           .from('profiles')
@@ -171,7 +183,6 @@ export async function updateIssueAction(
             role,
           })
         }
-        if (recipients.length === 0) return
 
         await sendIssueUpdatedEvent({
           actor: {
