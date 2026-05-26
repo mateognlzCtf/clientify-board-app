@@ -1,5 +1,6 @@
 'use server'
 
+import { after } from 'next/server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { createClient as createSsrClient } from '@/lib/supabase/server'
@@ -13,9 +14,11 @@ import { setIssueLabels } from '@/services/project-labels.service'
 import type { IssueCreate, IssueUpdate, Issue } from '@/types/issue.types'
 import type { ServiceResult } from '@/types/common.types'
 import {
-  sendAssignmentNotification,
-  sendStatusChangeNotification,
-  sendIssueUpdatedNotification,
+  sendIssueCreatedEvent,
+  sendIssueUpdatedEvent,
+  type EventChange,
+  type EventRecipient,
+  type RecipientRole,
 } from '@/lib/email'
 
 async function getAuthenticatedUser() {
@@ -37,19 +40,40 @@ export async function createIssueAction(
     revalidatePath(`/project/${projectId}/list`)
     revalidatePath(`/project/${projectId}/backlog`)
 
-    // Set labels if provided
     if (result.data && data.label_ids !== undefined) {
       await setIssueLabels(supabase, result.data.id, data.label_ids)
     }
 
-    // Notify assignee if different from creator
+    // Notify assignee if different from creator. after() guarantees the webhook
+    // fetch completes on Vercel serverless (void promises get killed).
     if (result.data && data.assignee_id && data.assignee_id !== user.id) {
-      void notifyAssignment({
-        supabase,
-        assigneeId: data.assignee_id,
-        creatorId: user.id,
-        issue: result.data,
-        projectId,
+      const issue = result.data
+      const assigneeId = data.assignee_id
+      const creatorId = user.id
+      after(async () => {
+        try {
+          const { data: profiles } = await supabase
+            .from('profiles')
+            .select('id, email, full_name')
+            .in('id', [assigneeId, creatorId])
+          const profileById = new Map((profiles ?? []).map((p) => [p.id, p]))
+          const actor = profileById.get(creatorId)
+          const recipient = profileById.get(assigneeId)
+          if (!actor?.email || !recipient?.email) return
+          await sendIssueCreatedEvent({
+            actor: { id: actor.id, name: actor.full_name ?? actor.email, email: actor.email },
+            issue: { id: issue.id, key: issue.key, title: issue.title },
+            recipients: [{
+              id: recipient.id,
+              name: recipient.full_name ?? recipient.email,
+              email: recipient.email,
+              role: 'assignee',
+            }],
+            projectId,
+          })
+        } catch (err) {
+          console.error('[issue.created]', err)
+        }
       })
     }
   }
@@ -65,11 +89,10 @@ export async function updateIssueAction(
   const user = await getAuthenticatedUser()
   const supabase = createAdminClient()
 
-  // Fetch previous state before updating to detect changes
+  // Fetch previous state before updating so we can detect what actually changed.
   const { data: previous } = await supabase
     .from('issues')
-    .select('assignee_id, title, description, priority, type, due_date, start_date, sprint_id, epic_id, pause_reason')
-
+    .select('status, assignee_id, title, description, priority, type, due_date, start_date, sprint_id, epic_id, pause_reason')
     .eq('id', issueId)
     .single()
 
@@ -92,65 +115,79 @@ export async function updateIssueAction(
     revalidatePath(`/project/${projectId}/backlog`)
     revalidatePath(`/project/${projectId}/board`)
 
-    // Set labels if provided
     if (data.label_ids !== undefined) {
       await setIssueLabels(supabase, issueId, data.label_ids)
     }
 
-    const newAssigneeId = result.data.assignee_id
-    const reporterId = result.data.reporter_id
+    // Single consolidated webhook with actor + all changes + all recipients.
+    // after() keeps the Vercel function alive until the fetch completes.
+    const issue = result.data
+    const updaterId = user.id
+    after(async () => {
+      try {
+        const changes = await buildChanges(supabase, previous, data, issue)
+        if (changes.length === 0) return
 
-    // Notify on status change — assignee and reporter (skip updater, dedupe)
-    if (data.status) {
-      const recipients = new Set<string>()
-      if (newAssigneeId && newAssigneeId !== user.id) recipients.add(newAssigneeId)
-      if (reporterId && reporterId !== user.id) recipients.add(reporterId)
-      for (const recipientId of recipients) {
-        void notifyStatusChange({
-          supabase,
-          assigneeId: recipientId,
-          updaterId: user.id,
-          issue: result.data,
-          projectId,
-          newStatus: data.status,
-        })
-      }
-    }
+        // Recipients: assignee, reporter, previous assignee (on reassignment).
+        // Actor never receives their own notification.
+        const roleByRecipientId = new Map<string, RecipientRole>()
+        if (issue.assignee_id && issue.assignee_id !== updaterId) {
+          roleByRecipientId.set(issue.assignee_id, 'assignee')
+        }
+        if (
+          previous?.assignee_id &&
+          previous.assignee_id !== issue.assignee_id &&
+          previous.assignee_id !== updaterId &&
+          !roleByRecipientId.has(previous.assignee_id)
+        ) {
+          roleByRecipientId.set(previous.assignee_id, 'previousAssignee')
+        }
+        if (
+          issue.reporter_id &&
+          issue.reporter_id !== updaterId &&
+          !roleByRecipientId.has(issue.reporter_id)
+        ) {
+          roleByRecipientId.set(issue.reporter_id, 'reporter')
+        }
+        if (roleByRecipientId.size === 0) return
 
-    // Notify on reassignment (new assignee != previous && != updater)
-    if (
-      data.assignee_id !== undefined &&
-      newAssigneeId &&
-      newAssigneeId !== previous?.assignee_id &&
-      newAssigneeId !== user.id
-    ) {
-      void notifyAssignment({
-        supabase,
-        assigneeId: newAssigneeId,
-        creatorId: user.id,
-        issue: result.data,
-        projectId,
-      })
-    }
+        const profileIds = [updaterId, ...roleByRecipientId.keys()]
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, email, full_name')
+          .in('id', profileIds)
+        const profileById = new Map((profiles ?? []).map((p) => [p.id, p]))
+        const actorProfile = profileById.get(updaterId)
+        if (!actorProfile?.email) return
 
-    // Notify reporter & assignee on field updates (excluding status — has its own event)
-    const changes = detectChanges(previous, data, result.data)
-    await resolveSprintNames(supabase, changes)
-    if (changes.length > 0) {
-      const recipients = new Set<string>()
-      if (newAssigneeId && newAssigneeId !== user.id) recipients.add(newAssigneeId)
-      if (reporterId && reporterId !== user.id) recipients.add(reporterId)
-      for (const recipientId of recipients) {
-        void notifyIssueUpdated({
-          supabase,
-          recipientId,
-          updaterId: user.id,
-          issue: result.data,
-          projectId,
+        const recipients: EventRecipient[] = []
+        for (const [id, role] of roleByRecipientId) {
+          const p = profileById.get(id)
+          if (!p?.email) continue
+          recipients.push({
+            id: p.id,
+            name: p.full_name ?? p.email,
+            email: p.email,
+            role,
+          })
+        }
+        if (recipients.length === 0) return
+
+        await sendIssueUpdatedEvent({
+          actor: {
+            id: actorProfile.id,
+            name: actorProfile.full_name ?? actorProfile.email,
+            email: actorProfile.email,
+          },
+          issue: { id: issue.id, key: issue.key, title: issue.title },
           changes,
+          recipients,
+          projectId,
         })
+      } catch (err) {
+        console.error('[issue.updated]', err)
       }
-    }
+    })
   }
 
   return result
@@ -189,69 +226,11 @@ export async function setIssueLabelsAction(
   return result
 }
 
-// ── Email helpers ─────────────────────────────────────────────────────────────
-
-async function notifyAssignment({
-  supabase, assigneeId, creatorId, issue, projectId,
-}: {
-  supabase: ReturnType<typeof createAdminClient>
-  assigneeId: string
-  creatorId: string
-  issue: Issue
-  projectId: string
-}) {
-  try {
-    const [{ data: assignee }, { data: creator }] = await Promise.all([
-      supabase.from('profiles').select('email, full_name').eq('id', assigneeId).single(),
-      supabase.from('profiles').select('full_name').eq('id', creatorId).single(),
-    ])
-    if (!assignee?.email) return
-    await sendAssignmentNotification({
-      toEmail: assignee.email,
-      toName: assignee.full_name ?? assignee.email,
-      assignedByName: creator?.full_name ?? 'Alguien',
-      issueKey: issue.key,
-      issueTitle: issue.title,
-      issueId: issue.id,
-      projectId,
-    })
-  } catch (err) {
-    console.error('[notifyAssignment]', err)
-  }
-}
-
-async function notifyStatusChange({
-  supabase, assigneeId, updaterId, issue, projectId, newStatus,
-}: {
-  supabase: ReturnType<typeof createAdminClient>
-  assigneeId: string
-  updaterId: string
-  issue: Issue
-  projectId: string
-  newStatus: string
-}) {
-  try {
-    const [{ data: assignee }, { data: updater }] = await Promise.all([
-      supabase.from('profiles').select('email, full_name').eq('id', assigneeId).single(),
-      supabase.from('profiles').select('full_name').eq('id', updaterId).single(),
-    ])
-    if (!assignee?.email) return
-    await sendStatusChangeNotification({
-      toEmail: assignee.email,
-      toName: assignee.full_name ?? assignee.email,
-      changedByName: updater?.full_name ?? 'Alguien',
-      issueKey: issue.key,
-      issueTitle: issue.title,
-      issueId: issue.id,
-      newStatus,
-      projectId,
-    })
-  } catch (err) {
-    console.error('[notifyStatusChange]', err)
-  }
-}
+// ── Change detection ────────────────────────────────────────────────────────
 
 type IssuePrevious = {
+  status: string
+  assignee_id: string | null
   title: string
   description: string | null
   priority: string
@@ -263,19 +242,48 @@ type IssuePrevious = {
   pause_reason: string | null
 } | null
 
-function detectChanges(
+async function buildChanges(
+  supabase: ReturnType<typeof createAdminClient>,
   previous: IssuePrevious,
   data: IssueUpdate,
   current: Issue,
-): { field: string; from: string | null; to: string | null }[] {
+): Promise<EventChange[]> {
   if (!previous) return []
-  const changes: { field: string; from: string | null; to: string | null }[] = []
+  const changes: EventChange[] = []
+
+  // Status — was a separate event before, now consolidated
+  if (data.status !== undefined && data.status !== previous.status) {
+    changes.push({ field: 'Status', from: previous.status ?? null, to: data.status ?? null })
+  }
+
+  // Assignee — resolve UUIDs to display names
+  if (data.assignee_id !== undefined && data.assignee_id !== previous.assignee_id) {
+    const assigneeIds = [previous.assignee_id, data.assignee_id].filter((id): id is string => !!id)
+    let nameById = new Map<string, string>()
+    if (assigneeIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, full_name, email')
+        .in('id', assigneeIds)
+      nameById = new Map((profiles ?? []).map((p) => [p.id, p.full_name ?? p.email]))
+    }
+    changes.push({
+      field: 'Assignee',
+      from: previous.assignee_id ? (nameById.get(previous.assignee_id) ?? previous.assignee_id) : null,
+      to: data.assignee_id ? (nameById.get(data.assignee_id) ?? data.assignee_id) : null,
+    })
+  }
+
+  // Plain scalar fields
   const fields: { key: keyof IssueUpdate; label: string }[] = [
+    { key: 'title', label: 'Title' },
     { key: 'description', label: 'Description' },
     { key: 'priority', label: 'Priority' },
     { key: 'type', label: 'Type' },
     { key: 'due_date', label: 'Due date' },
+    { key: 'start_date', label: 'Start date' },
     { key: 'sprint_id', label: 'Sprint' },
+    { key: 'epic_id', label: 'Epic' },
     { key: 'pause_reason', label: 'Pause reason' },
   ]
   for (const { key, label } of fields) {
@@ -290,50 +298,28 @@ function detectChanges(
       })
     }
   }
+
+  // Resolve sprint IDs to names
+  await resolveIdsToNames(supabase, changes, 'Sprint', 'sprints', 'name')
+  // Resolve epic IDs to names
+  await resolveIdsToNames(supabase, changes, 'Epic', 'epics', 'name')
+
   return changes
 }
 
-async function resolveSprintNames(
+async function resolveIdsToNames(
   supabase: ReturnType<typeof createAdminClient>,
-  changes: { field: string; from: string | null; to: string | null }[],
+  changes: EventChange[],
+  field: string,
+  table: 'sprints' | 'epics',
+  nameColumn: 'name',
 ) {
-  const sprintChange = changes.find((c) => c.field === 'Sprint')
-  if (!sprintChange) return
-  const ids = [sprintChange.from, sprintChange.to].filter((id): id is string => !!id)
+  const change = changes.find((c) => c.field === field)
+  if (!change) return
+  const ids = [change.from, change.to].filter((id): id is string => !!id)
   if (ids.length === 0) return
-  const { data: sprints } = await supabase.from('sprints').select('id, name').in('id', ids)
-  const nameById = new Map((sprints ?? []).map((s) => [s.id, s.name]))
-  sprintChange.from = sprintChange.from ? (nameById.get(sprintChange.from) ?? sprintChange.from) : null
-  sprintChange.to = sprintChange.to ? (nameById.get(sprintChange.to) ?? sprintChange.to) : null
-}
-
-async function notifyIssueUpdated({
-  supabase, recipientId, updaterId, issue, projectId, changes,
-}: {
-  supabase: ReturnType<typeof createAdminClient>
-  recipientId: string
-  updaterId: string
-  issue: Issue
-  projectId: string
-  changes: { field: string; from: string | null; to: string | null }[]
-}) {
-  try {
-    const [{ data: recipient }, { data: updater }] = await Promise.all([
-      supabase.from('profiles').select('email, full_name').eq('id', recipientId).single(),
-      supabase.from('profiles').select('full_name').eq('id', updaterId).single(),
-    ])
-    if (!recipient?.email) return
-    await sendIssueUpdatedNotification({
-      toEmail: recipient.email,
-      toName: recipient.full_name ?? recipient.email,
-      updatedByName: updater?.full_name ?? 'Alguien',
-      issueKey: issue.key,
-      issueTitle: issue.title,
-      issueId: issue.id,
-      projectId,
-      changes,
-    })
-  } catch (err) {
-    console.error('[notifyIssueUpdated]', err)
-  }
+  const { data: rows } = await supabase.from(table).select(`id, ${nameColumn}`).in('id', ids)
+  const nameById = new Map(((rows ?? []) as { id: string; name: string }[]).map((r) => [r.id, r.name]))
+  change.from = change.from ? (nameById.get(change.from) ?? change.from) : null
+  change.to = change.to ? (nameById.get(change.to) ?? change.to) : null
 }

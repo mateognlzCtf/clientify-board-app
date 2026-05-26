@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createIssue } from '@/services/issues.service'
-import { sendAssignmentNotification } from '@/lib/email'
+import { sendIssueCreatedEvent } from '@/lib/email'
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
 
@@ -126,16 +127,37 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error ?? 'Error creating ticket' }, { status: 500 })
   }
 
-  // 9. Fire assignment notification (if assigned and different from reporter)
+  // 9. Fire issue.created event (if assigned and different from reporter).
+  // after() guarantees the webhook fetch completes on Vercel serverless.
   if (assignee && assignee.id !== reporter.id) {
-    void sendAssignmentNotification({
-      toEmail: assignee.email,
-      toName: assignee.full_name ?? assignee.email,
-      assignedByName: reporter.full_name ?? reporter.email,
-      issueKey: issue.key,
-      issueTitle: issue.title,
-      issueId: issue.id,
-      projectId,
+    const assigneeForEvent = assignee
+    const reporterForEvent = reporter
+    const issueForEvent = issue
+    const projectIdForEvent = projectId
+    after(async () => {
+      try {
+        await sendIssueCreatedEvent({
+          actor: {
+            id: reporterForEvent.id,
+            name: reporterForEvent.full_name ?? reporterForEvent.email,
+            email: reporterForEvent.email,
+          },
+          issue: {
+            id: issueForEvent.id,
+            key: issueForEvent.key,
+            title: issueForEvent.title,
+          },
+          recipients: [{
+            id: assigneeForEvent.id,
+            name: assigneeForEvent.full_name ?? assigneeForEvent.email,
+            email: assigneeForEvent.email,
+            role: 'assignee',
+          }],
+          projectId: projectIdForEvent,
+        })
+      } catch (err) {
+        console.error('[issue.created]', err)
+      }
     })
   }
 

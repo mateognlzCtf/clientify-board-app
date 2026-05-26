@@ -15,75 +15,82 @@ async function sendEvent(payload: Record<string, unknown>) {
   }
 }
 
-export async function sendAssignmentNotification({
-  toEmail,
-  toName,
-  assignedByName,
-  issueKey,
-  issueTitle,
-  issueId,
-  projectId,
+// ── Ticket / comment events (consolidated, one webhook per user action) ─────
+
+export type EventActor = { id: string; name: string; email: string }
+export type EventIssue = { id: string; key: string; title: string }
+export type RecipientRole = 'assignee' | 'reporter' | 'previousAssignee' | 'mentioned'
+export type EventRecipient = { id: string; name: string; email: string; role: RecipientRole }
+export type EventChange = { field: string; from: string | null; to: string | null }
+
+function withIssueUrls(issue: EventIssue, projectId: string) {
+  return {
+    ...issue,
+    url: `${APP_URL}/project/${projectId}/issue/${issue.id}`,
+    projectId,
+    projectUrl: `${APP_URL}/project/${projectId}/list`,
+  }
+}
+
+export async function sendIssueCreatedEvent({
+  actor, issue, recipients, projectId,
 }: {
-  toEmail: string
-  toName: string
-  assignedByName: string
-  issueKey: string
-  issueTitle: string
-  issueId: string
+  actor: EventActor
+  issue: EventIssue
+  recipients: EventRecipient[]
   projectId: string
 }) {
+  if (recipients.length === 0) return
   await sendEvent({
-    event: 'issue.assigned',
-    toEmail,
-    toName,
-    assignedByName,
-    issueKey,
-    issueTitle,
-    issueUrl: `${APP_URL}/project/${projectId}/issue/${issueId}`,
-    projectUrl: `${APP_URL}/project/${projectId}/list`,
-    projectId,
+    event: 'issue.created',
+    actor,
+    issue: withIssueUrls(issue, projectId),
+    recipients,
   })
 }
 
-export async function sendStatusChangeNotification({
-  toEmail,
-  toName,
-  changedByName,
-  issueKey,
-  issueTitle,
-  issueId,
-  newStatus,
-  projectId,
+export async function sendIssueUpdatedEvent({
+  actor, issue, changes, recipients, projectId,
 }: {
-  toEmail: string
-  toName: string
-  changedByName: string
-  issueKey: string
-  issueTitle: string
-  issueId: string
-  newStatus: string
+  actor: EventActor
+  issue: EventIssue
+  changes: EventChange[]
+  recipients: EventRecipient[]
   projectId: string
 }) {
+  if (changes.length === 0 || recipients.length === 0) return
   await sendEvent({
-    event: 'issue.status_changed',
-    toEmail,
-    toName,
-    changedByName,
-    issueKey,
-    issueTitle,
-    newStatus,
-    issueUrl: `${APP_URL}/project/${projectId}/issue/${issueId}`,
-    projectUrl: `${APP_URL}/project/${projectId}/list`,
-    projectId,
+    event: 'issue.updated',
+    actor,
+    issue: withIssueUrls(issue, projectId),
+    changes,
+    recipients,
   })
 }
+
+export async function sendCommentCreatedEvent({
+  actor, issue, comment, recipients, projectId,
+}: {
+  actor: EventActor
+  issue: EventIssue
+  comment: { snippet: string }
+  recipients: EventRecipient[]
+  projectId: string
+}) {
+  if (recipients.length === 0) return
+  await sendEvent({
+    event: 'comment.created',
+    actor,
+    issue: withIssueUrls(issue, projectId),
+    comment,
+    recipients,
+  })
+}
+
+// ── Project / user / platform events (unchanged) ────────────────────────────
 
 export async function sendProjectInviteNotification({
-  toEmail,
-  toName,
-  invitedByName,
-  projectName,
-  projectId,
+  toEmail, toName, invitedByName, projectName, projectId,
 }: {
   toEmail: string
   toName: string
@@ -103,10 +110,7 @@ export async function sendProjectInviteNotification({
 }
 
 export async function sendPendingInviteEmail({
-  toEmail,
-  invitedByName,
-  projectName,
-  inviteToken,
+  toEmail, invitedByName, projectName, inviteToken,
 }: {
   toEmail: string
   invitedByName: string
@@ -123,11 +127,7 @@ export async function sendPendingInviteEmail({
 }
 
 export async function sendUserRegisteredNotification({
-  toEmail,
-  newUserName,
-  newUserEmail,
-  approveUrl,
-  rejectUrl,
+  toEmail, newUserName, newUserEmail, approveUrl, rejectUrl,
 }: {
   toEmail: string
   newUserName: string
@@ -146,8 +146,7 @@ export async function sendUserRegisteredNotification({
 }
 
 export async function sendUserApprovedNotification({
-  toEmail,
-  toName,
+  toEmail, toName,
 }: {
   toEmail: string
   toName: string
@@ -161,8 +160,7 @@ export async function sendUserApprovedNotification({
 }
 
 export async function sendUserRejectedNotification({
-  toEmail,
-  toName,
+  toEmail, toName,
 }: {
   toEmail: string
   toName: string
@@ -175,9 +173,7 @@ export async function sendUserRejectedNotification({
 }
 
 export async function sendPlatformInviteNotification({
-  toEmail,
-  invitedByName,
-  inviteUrl,
+  toEmail, invitedByName, inviteUrl,
 }: {
   toEmail: string
   invitedByName: string
@@ -188,104 +184,5 @@ export async function sendPlatformInviteNotification({
     toEmail,
     invitedByName,
     inviteUrl,
-  })
-}
-
-export async function sendIssueUpdatedNotification({
-  toEmail,
-  toName,
-  updatedByName,
-  issueKey,
-  issueTitle,
-  issueId,
-  projectId,
-  changes,
-}: {
-  toEmail: string
-  toName: string
-  updatedByName: string
-  issueKey: string
-  issueTitle: string
-  issueId: string
-  projectId: string
-  changes: { field: string; from: string | null; to: string | null }[]
-}) {
-  await sendEvent({
-    event: 'issue.updated',
-    toEmail,
-    toName,
-    updatedByName,
-    issueKey,
-    issueTitle,
-    changes,
-    issueUrl: `${APP_URL}/project/${projectId}/issue/${issueId}`,
-    projectUrl: `${APP_URL}/project/${projectId}/list`,
-    projectId,
-  })
-}
-
-export async function sendCommentNotification({
-  toEmail,
-  toName,
-  authorName,
-  issueKey,
-  issueTitle,
-  issueId,
-  projectId,
-  commentSnippet,
-}: {
-  toEmail: string
-  toName: string
-  authorName: string
-  issueKey: string
-  issueTitle: string
-  issueId: string
-  projectId: string
-  commentSnippet: string
-}) {
-  await sendEvent({
-    event: 'comment.created',
-    toEmail,
-    toName,
-    authorName,
-    issueKey,
-    issueTitle,
-    commentSnippet,
-    issueUrl: `${APP_URL}/project/${projectId}/issue/${issueId}`,
-    projectUrl: `${APP_URL}/project/${projectId}/list`,
-    projectId,
-  })
-}
-
-export async function sendMentionNotification({
-  toEmail,
-  toName,
-  mentionedByName,
-  issueKey,
-  issueTitle,
-  issueId,
-  projectId,
-  commentSnippet,
-}: {
-  toEmail: string
-  toName: string
-  mentionedByName: string
-  issueKey: string
-  issueTitle: string
-  issueId: string
-  projectId: string
-  commentSnippet: string
-}) {
-  await sendEvent({
-    event: 'comment.mentioned',
-    toEmail,
-    toName,
-    mentionedByName,
-    issueKey,
-    issueTitle,
-    commentSnippet,
-    issueUrl: `${APP_URL}/project/${projectId}/issue/${issueId}`,
-    projectUrl: `${APP_URL}/project/${projectId}/list`,
-    projectId,
   })
 }
