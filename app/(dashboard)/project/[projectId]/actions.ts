@@ -81,6 +81,7 @@ export async function createIssueAction(
             issue: { id: issue.id, key: issue.key, title: issue.title },
             recipients,
             projectId,
+            source: 'web',
           })
         } catch (err) {
           console.error('[issue.created]', err)

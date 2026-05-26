@@ -22,6 +22,8 @@ export type EventIssue = { id: string; key: string; title: string }
 export type RecipientRole = 'assignee' | 'reporter' | 'previousAssignee' | 'mentioned'
 export type EventRecipient = { id: string; name: string; email: string; role: RecipientRole }
 export type EventChange = { field: string; from: string | null; to: string | null }
+/** Where the ticket was created: 'web' = UI form, 'api' = integration endpoint. */
+export type EventSource = 'web' | 'api'
 
 function withIssueUrls(issue: EventIssue, projectId: string) {
   return {
@@ -37,15 +39,17 @@ function withIssueUrls(issue: EventIssue, projectId: string) {
 // would receive a direct email notification.
 
 export async function sendIssueCreatedEvent({
-  actor, issue, recipients, projectId,
+  actor, issue, recipients, projectId, source,
 }: {
   actor: EventActor
   issue: EventIssue
   recipients: EventRecipient[]
   projectId: string
+  source: EventSource
 }) {
   await sendEvent({
     event: 'issue.created',
+    source,
     actor,
     issue: withIssueUrls(issue, projectId),
     recipients,

@@ -157,6 +157,7 @@ export async function POST(request: NextRequest) {
         },
         recipients,
         projectId: projectIdForEvent,
+        source: 'api',
       })
     } catch (err) {
       console.error('[issue.created]', err)
