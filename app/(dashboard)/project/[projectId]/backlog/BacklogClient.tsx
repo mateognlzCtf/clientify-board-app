@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import {
   DndContext, DragOverlay, useDroppable, useDraggable,
@@ -10,7 +11,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import {
   Plus, ChevronDown, ChevronRight, Play, CheckSquare,
-  Pencil, Trash2, Flag, Calendar, MoreHorizontal, GripVertical, Search,
+  Pencil, Trash2, Flag, Calendar, MoreHorizontal, GripVertical, Search, Link2,
 } from 'lucide-react'
 import { JiraFilterButton, type FilterFieldDef } from '@/components/issues/JiraFilterButton'
 import { AssigneeAvatars } from '@/components/issues/AssigneeAvatars'
@@ -776,12 +777,38 @@ function DraggableIssueRow({
   onMoveIssue: (i: IssueWithDetails, sprintId: string | null) => void
 }) {
   const { statuses: projectStatuses } = useProjectSettings()
+  const { toast } = useToast()
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: issue.id })
   const [menuOpen, setMenuOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState<{ top?: number; bottom?: number; right: number }>({ right: 0 })
+  const menuBtnRef = useRef<HTMLButtonElement>(null)
+
+  function toggleMenu() {
+    if (!menuOpen && menuBtnRef.current) {
+      const rect = menuBtnRef.current.getBoundingClientRect()
+      const right = window.innerWidth - rect.right
+      // Open upward when there isn't enough room below (e.g. last row of a section).
+      setMenuPos(window.innerHeight - rect.bottom < 220
+        ? { bottom: window.innerHeight - rect.top + 4, right }
+        : { top: rect.bottom + 4, right })
+    }
+    setMenuOpen((o) => !o)
+  }
 
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined
   const inSprint = currentSprintId !== null
   const otherSprints = sprints.filter((s) => s.id !== currentSprintId && s.status !== 'completed')
+
+  async function handleCopyLink() {
+    setMenuOpen(false)
+    const url = `${window.location.origin}/project/${issue.project_id}/issue/${issue.id}`
+    try {
+      await navigator.clipboard.writeText(url)
+      toast('Link copied to clipboard.', 'success')
+    } catch {
+      toast('Could not copy link.', 'error')
+    }
+  }
 
   const MAX_VISIBLE_LABELS = 2
   const visibleLabels = issue.labels?.slice(0, MAX_VISIBLE_LABELS) ?? []
@@ -887,16 +914,28 @@ function DraggableIssueRow({
         {/* Move menu */}
         <div className="relative opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
           <button
-            onClick={() => setMenuOpen((o) => !o)}
+            ref={menuBtnRef}
+            onClick={toggleMenu}
             className="p-1 text-gray-400 hover:text-gray-700 rounded transition-colors"
             title="Move to..."
           >
             <MoreHorizontal size={14} />
           </button>
-          {menuOpen && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]">
+          {menuOpen && createPortal(
+            <div onClick={(e) => e.stopPropagation()}>
+              <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+              <div
+                className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]"
+                style={{ top: menuPos.top, bottom: menuPos.bottom, right: menuPos.right }}
+              >
+                <button
+                  onClick={handleCopyLink}
+                  className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                >
+                  <Link2 size={12} />
+                  Copy link
+                </button>
+                <div className="my-1 border-t border-gray-100" />
                 {inSprint && (
                   <button
                     onClick={() => { onMoveIssue(issue, null); setMenuOpen(false) }}
@@ -918,7 +957,8 @@ function DraggableIssueRow({
                   <p className="px-3 py-1.5 text-xs text-gray-400 italic">No sprints available</p>
                 )}
               </div>
-            </>
+            </div>,
+            document.body
           )}
         </div>
       </div>
