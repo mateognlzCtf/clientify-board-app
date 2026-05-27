@@ -107,7 +107,11 @@ export async function createCommentAction(
           email: authorProfile.email,
         },
         issue: { id: issueId, key: issue.key, title: issue.title },
-        comment: { snippet: extractTextSnippet(content) },
+        comment: {
+          snippet: extractTextSnippet(content),
+          markdown: extractMarkdown(content),
+          images: extractImageUrls(content),
+        },
         recipients,
         projectId,
       })
@@ -149,6 +153,77 @@ function extractTextSnippet(content: JSONContent, max = 200): string {
     return truncated ? `${truncated} [📷 image]` : `📷 image`
   }
   return truncated
+}
+
+/** Collects all image URLs (src) from the Tiptap JSON tree, in order. */
+function extractImageUrls(content: JSONContent): string[] {
+  const urls: string[] = []
+  function walk(node: JSONContent) {
+    if (node.type === 'image' && typeof node.attrs?.src === 'string') {
+      urls.push(node.attrs.src)
+    }
+    node.content?.forEach(walk)
+  }
+  walk(content)
+  return urls
+}
+
+/**
+ * Converts the Tiptap JSON tree to Markdown, preserving formatting, code blocks,
+ * links, mentions and images — the full comment as written. Used for Slack sync.
+ */
+function extractMarkdown(content: JSONContent): string {
+  function inline(node: JSONContent): string {
+    if (node.type === 'text') {
+      let text = node.text ?? ''
+      const markTypes = (node.marks ?? []).map((m) => m.type)
+      if (markTypes.includes('code')) text = '`' + text + '`'
+      if (markTypes.includes('strike')) text = '~~' + text + '~~'
+      if (markTypes.includes('italic')) text = '*' + text + '*'
+      if (markTypes.includes('bold')) text = '**' + text + '**'
+      const link = (node.marks ?? []).find((m) => m.type === 'link')
+      if (link?.attrs?.href) text = `[${text}](${link.attrs.href})`
+      return text
+    }
+    if (node.type === 'mention') return `@${node.attrs?.label ?? ''}`
+    if (node.type === 'hardBreak') return '\n'
+    if (node.type === 'image') return `![image](${node.attrs?.src ?? ''})`
+    return (node.content ?? []).map(inline).join('')
+  }
+
+  function listItemText(item: JSONContent): string {
+    return (item.content ?? []).map(block).join('\n').trim()
+  }
+
+  function block(node: JSONContent): string {
+    switch (node.type) {
+      case 'doc':
+        return (node.content ?? []).map(block).join('\n\n')
+      case 'paragraph':
+        return (node.content ?? []).map(inline).join('')
+      case 'heading':
+        return '#'.repeat(Number(node.attrs?.level ?? 1)) + ' ' + (node.content ?? []).map(inline).join('')
+      case 'codeBlock': {
+        const lang = node.attrs?.language ?? ''
+        const code = (node.content ?? []).map((n) => n.text ?? '').join('')
+        return '```' + lang + '\n' + code + '\n```'
+      }
+      case 'blockquote':
+        return (node.content ?? []).map(block).join('\n\n').split('\n').map((l) => '> ' + l).join('\n')
+      case 'bulletList':
+        return (node.content ?? []).map((item) => '- ' + listItemText(item)).join('\n')
+      case 'orderedList':
+        return (node.content ?? []).map((item, i) => `${i + 1}. ` + listItemText(item)).join('\n')
+      case 'image':
+        return `![image](${node.attrs?.src ?? ''})`
+      case 'horizontalRule':
+        return '---'
+      default:
+        return (node.content ?? []).map(block).join('\n\n')
+    }
+  }
+
+  return block(content).trim()
 }
 
 export async function deleteCommentAction(

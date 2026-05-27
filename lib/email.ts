@@ -80,7 +80,9 @@ export async function sendCommentCreatedEvent({
 }: {
   actor: EventActor
   issue: EventIssue
-  comment: { snippet: string }
+  // snippet: plain-text preview (used by Gmail). markdown: full content for Slack.
+  // images: URLs of attached images.
+  comment: { snippet: string; markdown: string; images: string[] }
   recipients: EventRecipient[]
   projectId: string
 }) {
