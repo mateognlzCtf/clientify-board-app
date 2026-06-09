@@ -9,6 +9,9 @@ import {
   createIssue as createIssueService,
   updateIssue as updateIssueService,
   deleteIssue as deleteIssueService,
+  getIssuesPaginated,
+  type IssuesPageFilters,
+  type IssuesPageResult,
 } from '@/services/issues.service'
 import { setIssueLabels } from '@/services/project-labels.service'
 import type { IssueCreate, IssueUpdate, Issue } from '@/types/issue.types'
@@ -335,3 +338,21 @@ async function resolveIdsToNames(
   change.from = change.from ? (nameById.get(change.from) ?? change.from) : null
   change.to = change.to ? (nameById.get(change.to) ?? change.to) : null
 }
+
+// ── Pagination ─────────────────────────────────────────────────────────────
+
+/**
+ * Load a page of issues with server-side filtering. Used by the List view to
+ * implement "Show more" pagination without bringing all tickets at once.
+ */
+export async function loadIssuesPageAction(
+  projectId: string,
+  offset: number,
+  filters: IssuesPageFilters,
+  limit: number = 100,
+): Promise<ServiceResult<IssuesPageResult>> {
+  await getAuthenticatedUser()
+  const supabase = createAdminClient()
+  return getIssuesPaginated(supabase, projectId, { limit, offset, filters })
+}
+

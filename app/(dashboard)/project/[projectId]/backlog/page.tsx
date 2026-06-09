@@ -2,9 +2,6 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getIssues } from '@/services/issues.service'
-import { getSprints } from '@/services/sprints.service'
-import { getProjectMembers } from '@/services/projects.service'
-import { getEpics } from '@/services/epics.service'
 import { BacklogClient } from './BacklogClient'
 
 interface Props {
@@ -20,15 +17,18 @@ export default async function BacklogPage({ params }: Props) {
 
   const admin = createAdminClient()
 
-  const [{ data: issues }, { data: sprints }, { data: members }, { data: epics }] = await Promise.all([
+  // Sprints/members/epics live in the layout context (loaded once per project entry).
+  const [{ data: issues }, { data: membership }] = await Promise.all([
     getIssues(admin, projectId),
-    getSprints(admin, projectId),
-    getProjectMembers(supabase, projectId),
-    getEpics(admin, projectId),
+    admin
+      .from('project_members')
+      .select('role')
+      .eq('project_id', projectId)
+      .eq('user_id', user.id)
+      .single(),
   ])
 
-  const currentMember = (members ?? []).find((m) => m.user_id === user.id)
-  const canDelete = currentMember?.role === 'owner' || currentMember?.role === 'admin'
+  const canDelete = membership?.role === 'owner' || membership?.role === 'admin'
 
   return (
     <BacklogClient
@@ -36,9 +36,6 @@ export default async function BacklogPage({ params }: Props) {
       currentUserId={user.id}
       canDelete={canDelete}
       issues={issues ?? []}
-      sprints={sprints ?? []}
-      members={members ?? []}
-      epics={epics ?? []}
     />
   )
 }

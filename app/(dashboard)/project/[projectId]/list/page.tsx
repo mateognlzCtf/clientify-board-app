@@ -1,11 +1,11 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getIssues } from '@/services/issues.service'
-import { getSprints } from '@/services/sprints.service'
-import { getProjectMembers } from '@/services/projects.service'
-import { getEpics } from '@/services/epics.service'
+import { getIssuesPaginated } from '@/services/issues.service'
 import { IssuesClient } from './IssuesClient'
+
+const SMALL_PROJECT_THRESHOLD = 500
+const PAGE_SIZE = 100
 
 interface Props {
   params: Promise<{ projectId: string }>
@@ -14,7 +14,7 @@ interface Props {
 
 export default async function IssuesListPage({ params, searchParams }: Props) {
   const { projectId } = await params
-  const filters = await searchParams
+  const filtersParams = await searchParams
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -22,22 +22,48 @@ export default async function IssuesListPage({ params, searchParams }: Props) {
 
   const admin = createAdminClient()
 
-  const [{ data: issues }, { data: sprints }, { data: members }, { data: epics }] = await Promise.all([
-    getIssues(admin, projectId),
-    getSprints(admin, projectId),
-    getProjectMembers(supabase, projectId),
-    getEpics(admin, projectId),
-  ])
-
-  const currentMember = (members ?? []).find((m) => m.user_id === user.id)
-  const canDelete = currentMember?.role === 'owner' || currentMember?.role === 'admin'
-
-  // Parse filter params (comma-separated values)
   function parseParam(key: string): string[] {
-    const val = filters[key]
+    const val = filtersParams[key]
     if (!val) return []
     return Array.isArray(val) ? val : val.split(',').filter(Boolean)
   }
+
+  const initialFilters = {
+    statuses: parseParam('status'),
+    priorities: parseParam('priority'),
+    types: parseParam('type'),
+    assignees: parseParam('assignee'),
+    labels: parseParam('label'),
+  }
+
+  // Probe to detect project size + only the current user's membership row
+  // (sprints/members/epics for the full list live in the layout context).
+  const [{ data: probe }, { data: membership }] = await Promise.all([
+    getIssuesPaginated(admin, projectId, { limit: SMALL_PROJECT_THRESHOLD, offset: 0, filters: {} }),
+    admin
+      .from('project_members')
+      .select('role')
+      .eq('project_id', projectId)
+      .eq('user_id', user.id)
+      .single(),
+  ])
+
+  const isSmallProject = !probe?.hasMore
+
+  let initialIssues = probe?.data ?? []
+  let initialHasMore = false
+
+  if (!isSmallProject) {
+    const { data: filtered } = await getIssuesPaginated(admin, projectId, {
+      limit: PAGE_SIZE,
+      offset: 0,
+      filters: initialFilters,
+    })
+    initialIssues = filtered?.data ?? []
+    initialHasMore = filtered?.hasMore ?? false
+  }
+
+  const canDelete = membership?.role === 'owner' || membership?.role === 'admin'
 
   return (
     <div className="p-6">
@@ -45,17 +71,11 @@ export default async function IssuesListPage({ params, searchParams }: Props) {
         projectId={projectId}
         currentUserId={user.id}
         canDelete={canDelete}
-        issues={issues ?? []}
-        sprints={sprints ?? []}
-        members={members ?? []}
-        epics={epics ?? []}
-        initialFilters={{
-          statuses: parseParam('status'),
-          priorities: parseParam('priority'),
-          types: parseParam('type'),
-          assignees: parseParam('assignee'),
-          labels: parseParam('label'),
-        }}
+        issues={initialIssues}
+        initialHasMore={initialHasMore}
+        isSmallProject={isSmallProject}
+        pageSize={PAGE_SIZE}
+        initialFilters={initialFilters}
       />
     </div>
   )

@@ -29,6 +29,7 @@ import { TypeIcon } from '@/components/issues/TypeIcon'
 import { StatusBadge } from '@/components/issues/StatusBadge'
 import { useToast } from '@/providers/ToastProvider'
 import { useProjectSettings, formatSettingLabel } from '@/contexts/ProjectSettingsContext'
+import { useProjectData } from '@/contexts/ProjectDataContext'
 import type { ProjectStatus } from '@/types/project-settings.types'
 import type { IssueWithDetails, IssueUpdate } from '@/types/issue.types'
 import type { ProjectMemberPreview } from '@/services/projects.service'
@@ -44,9 +45,6 @@ interface KanbanBoardProps {
   currentUserId: string
   canDelete: boolean
   issues: IssueWithDetails[]
-  sprints: Sprint[]
-  members: ProjectMemberPreview[]
-  epics: Epic[]
 }
 
 interface BoardFilters {
@@ -61,12 +59,13 @@ const EMPTY_FILTERS: BoardFilters = { sprints: [], assignees: [], labels: [], pr
 
 type GroupBy = 'none' | 'assignee' | 'epic'
 
-export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initialIssues, sprints, members, epics }: KanbanBoardProps) {
+export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initialIssues }: KanbanBoardProps) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { toast } = useToast()
   const { statuses: projectStatuses, types: projectTypes, labels: projectLabels } = useProjectSettings()
+  const { sprints, members, epics } = useProjectData()
   useRefreshOnFocus(() => setDetailTarget(null))
   useRealtimeRefresh(projectId)
 

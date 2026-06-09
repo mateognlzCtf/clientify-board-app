@@ -2,11 +2,14 @@ import { redirect } from 'next/navigation'
 import { LayoutList, Kanban, Users, BookOpen } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getProject } from '@/services/projects.service'
+import { getProject, getProjectMembers } from '@/services/projects.service'
 import { getProjectStatuses } from '@/services/project-statuses.service'
 import { getProjectTypes } from '@/services/project-types.service'
 import { getProjectLabels } from '@/services/project-labels.service'
+import { getSprints } from '@/services/sprints.service'
+import { getEpics } from '@/services/epics.service'
 import { ProjectSettingsProvider } from '@/contexts/ProjectSettingsContext'
+import { ProjectDataProvider } from '@/contexts/ProjectDataContext'
 import { ProjectNav } from '@/components/layout/ProjectNav'
 import { ProjectLayoutShell } from './ProjectLayoutShell'
 import { NewTicketHeaderButton } from './NewTicketHeaderButton'
@@ -27,10 +30,20 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
   if (error || !project) redirect('/dashboard')
 
   const admin = createAdminClient()
-  const [{ data: statuses }, { data: types }, { data: labels }] = await Promise.all([
+  const [
+    { data: statuses },
+    { data: types },
+    { data: labels },
+    { data: sprints },
+    { data: members },
+    { data: epics },
+  ] = await Promise.all([
     getProjectStatuses(admin, projectId),
     getProjectTypes(admin, projectId),
     getProjectLabels(admin, projectId),
+    getSprints(admin, projectId),
+    getProjectMembers(supabase, projectId),
+    getEpics(admin, projectId),
   ])
 
   const navItems = [
@@ -61,7 +74,9 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
   return (
     <ProjectLayoutShell header={header}>
       <ProjectSettingsProvider statuses={statuses ?? []} types={types ?? []} labels={labels ?? []}>
-        {children}
+        <ProjectDataProvider sprints={sprints ?? []} members={members ?? []} epics={epics ?? []}>
+          {children}
+        </ProjectDataProvider>
       </ProjectSettingsProvider>
     </ProjectLayoutShell>
   )

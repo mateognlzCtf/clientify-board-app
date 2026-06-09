@@ -3,6 +3,7 @@ import { Poppins, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import { AuthProvider } from '@/providers/AuthProvider'
 import { ToastProvider } from '@/providers/ToastProvider'
+import { QueryProvider } from '@/providers/QueryProvider'
 import { SuppressSupabaseLockError } from '@/components/SuppressSupabaseLockError'
 
 const poppins = Poppins({
@@ -36,9 +37,11 @@ export default function RootLayout({
     >
       <body className="min-h-full bg-gray-50 text-gray-900">
         <SuppressSupabaseLockError />
-        <AuthProvider>
-          <ToastProvider>{children}</ToastProvider>
-        </AuthProvider>
+        <QueryProvider>
+          <AuthProvider>
+            <ToastProvider>{children}</ToastProvider>
+          </AuthProvider>
+        </QueryProvider>
       </body>
     </html>
   )

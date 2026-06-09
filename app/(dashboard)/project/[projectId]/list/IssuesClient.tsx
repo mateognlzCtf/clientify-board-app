@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { Plus, Search, Ticket, MessageSquare, GripVertical, Layers, ChevronDown, CircleDot, Zap, Users, Flag } from 'lucide-react'
 import { JiraFilterButton, type FilterFieldDef } from '@/components/issues/JiraFilterButton'
@@ -24,6 +25,7 @@ import { PriorityIcon, ALL_PRIORITIES, priorityLabel } from '@/components/issues
 import { TypeIcon } from '@/components/issues/TypeIcon'
 import { useToast } from '@/providers/ToastProvider'
 import { useProjectSettings, formatSettingLabel } from '@/contexts/ProjectSettingsContext'
+import { useProjectData } from '@/contexts/ProjectDataContext'
 import { cn } from '@/lib/utils/cn'
 import { formatDate, isOverdue } from '@/lib/utils/dates'
 import { useRefreshOnFocus } from '@/lib/hooks/useRefreshOnFocus'
@@ -36,6 +38,7 @@ import {
   createIssueAction,
   updateIssueAction,
   deleteIssueAction,
+  loadIssuesPageAction,
 } from '../actions'
 
 interface ActiveFilters {
@@ -51,13 +54,14 @@ interface IssuesClientProps {
   currentUserId: string
   canDelete: boolean
   issues: IssueWithDetails[]
-  sprints: Sprint[]
-  members: ProjectMemberPreview[]
-  epics: Epic[]
+  initialHasMore: boolean
+  isSmallProject: boolean
+  pageSize: number
   initialFilters: ActiveFilters
 }
 
-export function IssuesClient({ projectId, currentUserId, canDelete, issues, sprints, members, epics, initialFilters }: IssuesClientProps) {
+export function IssuesClient({ projectId, currentUserId, canDelete, issues, initialHasMore, isSmallProject, pageSize, initialFilters }: IssuesClientProps) {
+  const { sprints, members, epics } = useProjectData()
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -69,9 +73,6 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
   const [localIssues, setLocalIssues] = useState<IssueWithDetails[]>(
     [...issues].sort((a, b) => a.position - b.position)
   )
-  useEffect(() => {
-    setLocalIssues([...issues].sort((a, b) => a.position - b.position))
-  }, [issues])
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
   const [activeIssue, setActiveIssue] = useState<IssueWithDetails | null>(null)
@@ -123,20 +124,93 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
   const hasActiveFilters = filters.statuses.length > 0 || filters.priorities.length > 0 ||
     filters.types.length > 0 || filters.assignees.length > 0 || filters.labels.length > 0
 
+  // For small projects the server returns ALL tickets unfiltered — filters
+  // apply in the client (instant). For large projects the server already
+  // applied filters, so only search runs client-side here.
   const filtered = useMemo(() => {
     return localIssues.filter((i) => {
       if (search.trim()) {
         const q = search.trim().toLowerCase()
         if (!i.title.toLowerCase().includes(q) && !i.key.toLowerCase().includes(q)) return false
       }
-      if (filters.statuses.length && !filters.statuses.includes(i.status)) return false
-      if (filters.priorities.length && !filters.priorities.includes(i.priority)) return false
-      if (filters.types.length && !filters.types.includes(i.type)) return false
-      if (filters.assignees.length > 0 && !filters.assignees.includes(i.assignee_id ?? '__unassigned__')) return false
-      if (filters.labels.length && !filters.labels.some((id) => i.labels?.some((l) => l.id === id))) return false
+      if (isSmallProject) {
+        if (filters.statuses.length && !filters.statuses.includes(i.status)) return false
+        if (filters.priorities.length && !filters.priorities.includes(i.priority)) return false
+        if (filters.types.length && !filters.types.includes(i.type)) return false
+        if (filters.assignees.length > 0 && !filters.assignees.includes(i.assignee_id ?? '__unassigned__')) return false
+        if (filters.labels.length && !filters.labels.some((id) => i.labels?.some((l) => l.id === id))) return false
+      }
       return true
     })
-  }, [localIssues, search, filters])
+  }, [localIssues, search, filters, isSmallProject])
+
+  // React Query manages pagination + caching. For small projects the queryKey
+  // is constant ('all') so changing filters never triggers a refetch — the
+  // server already returned every ticket and filters apply client-side.
+  // For large projects the queryKey includes the filters so each combination
+  // is cached separately and revisiting a filter is instant.
+  const queryClient = useQueryClient()
+  const filterKey = useMemo(
+    () => (isSmallProject ? 'all' : JSON.stringify(filters)),
+    [filters, isSmallProject]
+  )
+
+  const query = useInfiniteQuery({
+    queryKey: ['issues-list', projectId, filterKey] as const,
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => {
+      // Small projects always fetch unfiltered (server gives everything)
+      const filtersToSend = isSmallProject ? {
+        statuses: [], priorities: [], types: [], assignees: [], labels: [],
+      } : filters
+      const limitToUse = isSmallProject ? 500 : pageSize
+      const { data } = await loadIssuesPageAction(projectId, pageParam, filtersToSend, limitToUse)
+      return data ?? { data: [], hasMore: false }
+    },
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.hasMore ? allPages.reduce((acc, p) => acc + p.data.length, 0) : undefined,
+    initialData: { pages: [{ data: issues, hasMore: initialHasMore }], pageParams: [0] },
+    // Mark initialData as freshly fetched so React Query doesn't trigger a
+    // background refetch on mount (the server-rendered page is already current).
+    initialDataUpdatedAt: Date.now(),
+    staleTime: 30 * 1000,
+    refetchOnMount: false,
+  })
+
+  const queryIssues = useMemo(
+    () => query.data?.pages.flatMap((p) => p.data) ?? [],
+    [query.data]
+  )
+
+  // Sync localIssues from query when it changes (filters change, fetchNextPage, etc.)
+  useEffect(() => {
+    setLocalIssues([...queryIssues].sort((a, b) => a.position - b.position))
+  }, [queryIssues])
+
+  const hasMore = query.hasNextPage
+  const loadingMore = query.isFetchingNextPage || query.isFetching
+
+  async function handleShowMore() {
+    if (loadingMore || !hasMore) return
+    await query.fetchNextPage()
+  }
+
+  // Invalidate the list query so realtime / mutations trigger a refetch.
+  const invalidateList = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['issues-list', projectId] })
+  }, [queryClient, projectId])
+
+  // Bridge: when the server component refetches (router.refresh from realtime
+  // or revalidatePath from mutations), the `issues` prop reference changes.
+  // Invalidate React Query so the displayed data stays fresh.
+  const isFirstSync = useRef(true)
+  useEffect(() => {
+    if (isFirstSync.current) {
+      isFirstSync.current = false
+      return
+    }
+    invalidateList()
+  }, [issues, invalidateList])
 
   const groupedIssues = useMemo(() => {
     if (listGroupBy === 'none') return null
@@ -528,6 +602,15 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, spri
           title="No results"
           description="No tickets match the current filters."
         />
+      )}
+
+      {/* Show more */}
+      {localIssues.length > 0 && hasMore && (
+        <div className="flex justify-center mt-6">
+          <Button onClick={handleShowMore} loading={loadingMore} variant="secondary">
+            {loadingMore ? 'Loading...' : `Show ${pageSize} more`}
+          </Button>
+        </div>
       )}
 
       {/* Modal: ticket detail */}

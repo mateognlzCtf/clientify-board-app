@@ -91,6 +91,138 @@ export async function getIssues(
   return { data: issues, error: null }
 }
 
+export interface IssuesPageFilters {
+  statuses?: string[]
+  priorities?: string[]
+  types?: string[]
+  assignees?: string[] // may include '__unassigned__'
+  labels?: string[]
+  search?: string
+}
+
+export interface IssuesPageOptions {
+  limit?: number
+  offset?: number
+  filters?: IssuesPageFilters
+}
+
+export interface IssuesPageResult {
+  data: IssueWithDetails[]
+  hasMore: boolean
+}
+
+/**
+ * Paginated version of getIssues with server-side filtering.
+ * Use for high-volume projects where loading all tickets is impractical.
+ */
+export async function getIssuesPaginated(
+  supabase: Client,
+  projectId: string,
+  options: IssuesPageOptions = {}
+): Promise<ServiceResult<IssuesPageResult>> {
+  const limit = options.limit ?? 100
+  const offset = options.offset ?? 0
+  const filters = options.filters ?? {}
+
+  // If filtering by labels, first resolve issue IDs that have any of those labels
+  let labelFilteredIds: string[] | null = null
+  if (filters.labels && filters.labels.length > 0) {
+    const { data: labelRows } = await supabase
+      .from('issue_labels')
+      .select('issue_id')
+      .in('label_id', filters.labels)
+    labelFilteredIds = [...new Set((labelRows ?? []).map((r) => r.issue_id))]
+    if (labelFilteredIds.length === 0) {
+      return { data: { data: [], hasMore: false }, error: null }
+    }
+  }
+
+  let query = supabase
+    .from('issues')
+    .select(`
+      *,
+      assignee:profiles!issues_assignee_id_fkey(id, full_name, avatar_url, status),
+      reporter:profiles!issues_reporter_id_fkey(id, full_name, avatar_url, status),
+      epic:epics(id, name, color),
+      comments(count),
+      issue_labels(label:project_labels(id, name, color, project_id, created_at))
+    `)
+    .eq('project_id', projectId)
+
+  if (filters.statuses && filters.statuses.length > 0) {
+    query = query.in('status', filters.statuses)
+  }
+  if (filters.priorities && filters.priorities.length > 0) {
+    query = query.in('priority', filters.priorities)
+  }
+  if (filters.types && filters.types.length > 0) {
+    query = query.in('type', filters.types)
+  }
+  if (filters.assignees && filters.assignees.length > 0) {
+    const includesUnassigned = filters.assignees.includes('__unassigned__')
+    const userIds = filters.assignees.filter((id) => id !== '__unassigned__')
+    if (includesUnassigned && userIds.length > 0) {
+      query = query.or(`assignee_id.is.null,assignee_id.in.(${userIds.join(',')})`)
+    } else if (includesUnassigned) {
+      query = query.is('assignee_id', null)
+    } else {
+      query = query.in('assignee_id', userIds)
+    }
+  }
+  if (labelFilteredIds !== null) {
+    query = query.in('id', labelFilteredIds)
+  }
+  if (filters.search && filters.search.trim()) {
+    const q = filters.search.trim().replace(/[%_]/g, '\\$&')
+    query = query.or(`title.ilike.%${q}%,key.ilike.%${q}%`)
+  }
+
+  // Fetch limit + 1 to detect if more pages exist without an extra COUNT query
+  query = query
+    .order('position', { ascending: true })
+    .range(offset, offset + limit)
+
+  const { data, error } = await query
+  if (error) {
+    console.error('[getIssuesPaginated]', error)
+    return { data: null, error: 'Error al cargar los tickets.' }
+  }
+
+  const rows = data as unknown as RawIssue[]
+  const hasMore = rows.length > limit
+  const sliced = hasMore ? rows.slice(0, limit) : rows
+
+  const issues: IssueWithDetails[] = sliced.map((row) => ({
+    id: row.id,
+    project_id: row.project_id,
+    key: row.key,
+    title: row.title,
+    description: row.description,
+    status: row.status as Issue['status'],
+    priority: row.priority as Issue['priority'],
+    type: row.type as Issue['type'],
+    assignee_id: row.assignee_id,
+    reporter_id: row.reporter_id,
+    position: row.position,
+    due_date: row.due_date,
+    sprint_id: row.sprint_id,
+    epic_id: row.epic_id,
+    start_date: row.start_date,
+    slack_thread: row.slack_thread,
+    pause_reason: row.pause_reason,
+    resolved_at: row.resolved_at ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    assignee: row.assignee,
+    reporter: row.reporter ?? { id: row.reporter_id, full_name: null, avatar_url: null, status: 'active' },
+    epic: row.epic,
+    comment_count: row.comments?.[0]?.count ?? 0,
+    labels: (row.issue_labels ?? []).map((il) => il.label),
+  }))
+
+  return { data: { data: issues, hasMore }, error: null }
+}
+
 export async function getIssueById(
   supabase: Client,
   issueId: string

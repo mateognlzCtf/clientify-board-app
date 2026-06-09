@@ -25,6 +25,7 @@ import { PriorityIcon, ALL_PRIORITIES, priorityLabel } from '@/components/issues
 import { TypeIcon } from '@/components/issues/TypeIcon'
 import { useToast } from '@/providers/ToastProvider'
 import { useProjectSettings, formatSettingLabel } from '@/contexts/ProjectSettingsContext'
+import { useProjectData } from '@/contexts/ProjectDataContext'
 import { cn } from '@/lib/utils/cn'
 import { formatDate } from '@/lib/utils/dates'
 import { useRefreshOnFocus } from '@/lib/hooks/useRefreshOnFocus'
@@ -44,16 +45,14 @@ interface Props {
   currentUserId: string
   canDelete: boolean
   issues: IssueWithDetails[]
-  sprints: Sprint[]
-  members: ProjectMemberPreview[]
-  epics: Epic[]
 }
 
-export function BacklogClient({ projectId, currentUserId, canDelete, issues, sprints: initialSprints, members, epics: initialEpics }: Props) {
+export function BacklogClient({ projectId, currentUserId, canDelete, issues }: Props) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { toast } = useToast()
+  const { sprints: initialSprints, members, epics: initialEpics } = useProjectData()
   const { statuses: projectStatuses, types: projectTypes, labels: projectLabels } = useProjectSettings()
   useRefreshOnFocus(() => setDetailTarget(null))
   useRealtimeRefresh(projectId)
