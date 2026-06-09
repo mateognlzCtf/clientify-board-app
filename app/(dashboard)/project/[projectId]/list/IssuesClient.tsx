@@ -4,7 +4,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import { Plus, Search, Ticket, MessageSquare, GripVertical, Layers, ChevronDown, CircleDot, Zap, Users, Flag, Settings2, MoreHorizontal, ExternalLink } from 'lucide-react'
+import { Plus, Search, Ticket, MessageSquare, GripVertical, Layers, ChevronDown, CircleDot, Zap, Users, Flag, Settings2, MoreHorizontal, ExternalLink, Calendar, Tag } from 'lucide-react'
 import { JiraFilterButton, type FilterFieldDef } from '@/components/issues/JiraFilterButton'
 import { AssigneeAvatars } from '@/components/issues/AssigneeAvatars'
 import {
@@ -33,6 +33,9 @@ import { useRefreshOnFocus } from '@/lib/hooks/useRefreshOnFocus'
 import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh'
 import { useListColumnWidths, type ListColumnId } from '@/lib/hooks/useListColumnWidths'
 import { useListColumnVisibility, LIST_COLUMN_LABELS, LIST_COLUMN_ORDER } from '@/lib/hooks/useListColumnVisibility'
+import { RichTextEditor } from '@/components/issues/RichTextEditor'
+import type { JSONContent } from '@tiptap/core'
+import { uploadCommentImageAction } from '../comment-actions'
 import type { IssueWithDetails, IssueCreate, IssueUpdate, IssuePriority } from '@/types/issue.types'
 import type { ProjectMemberPreview } from '@/services/projects.service'
 import type { Sprint } from '@/types/sprint.types'
@@ -44,6 +47,7 @@ import {
   loadIssuesListLiteAction,
 } from '../actions'
 import type { IssueListLite } from '@/types/issue.types'
+import type { ProjectLabel as ProjectLabelType } from '@/types/project-settings.types'
 
 function liteToFull(lite: IssueListLite): IssueWithDetails {
   return {
@@ -352,6 +356,39 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
     }
   }
 
+  // Optimistic inline edit for a single field. Called by each EditableCell.
+  const handleInlineUpdate = useCallback(async (issueId: string, patch: IssueUpdate) => {
+    setLocalIssues((prev) => prev.map((i) => {
+      if (i.id !== issueId) return i
+      const updated: IssueWithDetails = { ...i, ...patch } as IssueWithDetails
+      // When label_ids changes, resolve the actual ProjectLabel objects so the row re-renders correctly
+      if (patch.label_ids !== undefined) {
+        updated.labels = patch.label_ids
+          .map((id) => projectLabels.find((l) => l.id === id))
+          .filter((l): l is typeof projectLabels[number] => !!l)
+      }
+      return updated
+    }))
+    const { error } = await updateIssueAction(projectId, issueId, patch)
+    if (error) {
+      toast(error, 'error')
+      invalidateList()
+    }
+  }, [projectId, toast, invalidateList, projectLabels])
+
+  const handleAddComment = useCallback(async (issueId: string, content: JSONContent) => {
+    const contentJson = JSON.stringify(content)
+    const { createCommentAction } = await import('../comment-actions')
+    const { error } = await createCommentAction({ issue_id: issueId, contentJson, projectId })
+    if (error) {
+      toast(error, 'error')
+      return
+    }
+    setLocalIssues((prev) => prev.map((i) =>
+      i.id === issueId ? { ...i, comment_count: i.comment_count + 1 } : i
+    ))
+  }, [projectId, toast])
+
   async function handleDelete() {
     if (!deleteTarget) return
     setDeleteLoading(true)
@@ -544,7 +581,12 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
                               key={issue.id}
                               issue={issue}
                               sprints={sprints}
+                              epics={epics}
+                              members={members}
+                              projectLabels={projectLabels}
                               onDetail={() => router.push(`/project/${projectId}/issue/${issue.id}`)}
+                              onUpdate={(patch) => handleInlineUpdate(issue.id, patch)}
+                              onAddComment={(text) => handleAddComment(issue.id, text)}
                               colVisible={colVisible}
                               menuOpen={rowMenuOpen === issue.id}
                               onMenuToggle={(open) => setRowMenuOpen(open ? issue.id : null)}
@@ -597,7 +639,12 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
                       key={issue.id}
                       issue={issue}
                       sprints={sprints}
+                      epics={epics}
+                      members={members}
+                      projectLabels={projectLabels}
                       onDetail={() => router.push(`/project/${projectId}/issue/${issue.id}`)}
+                      onUpdate={(patch) => handleInlineUpdate(issue.id, patch)}
+                      onAddComment={(text) => handleAddComment(issue.id, text)}
                       colVisible={colVisible}
                       menuOpen={rowMenuOpen === issue.id}
                       onMenuToggle={(open) => setRowMenuOpen(open ? issue.id : null)}
@@ -698,17 +745,22 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
 // ── Sortable row ─────────────────────────────────────────────────────────────
 
 function SortableIssueRow({
-  issue, sprints, onDetail, disableDrag, colVisible, menuOpen, onMenuToggle,
+  issue, sprints, epics, members, projectLabels, onDetail, onUpdate, onAddComment, disableDrag, colVisible, menuOpen, onMenuToggle,
 }: {
   issue: IssueWithDetails
   sprints: Sprint[]
+  epics: Epic[]
+  members: ProjectMemberPreview[]
+  projectLabels: ProjectLabelType[]
   onDetail: () => void
+  onUpdate: (patch: IssueUpdate) => void
+  onAddComment: (content: JSONContent) => void | Promise<void>
   disableDrag?: boolean
   colVisible: Record<ListColumnId, boolean>
   menuOpen: boolean
   onMenuToggle: (open: boolean) => void
 }) {
-  const { statuses: projectStatuses } = useProjectSettings()
+  const { statuses: projectStatuses, types: projectTypes } = useProjectSettings()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: issue.id, disabled: disableDrag })
   const style = { transform: CSS.Transform.toString(transform), transition }
   const sprint = sprints.find((s) => s.id === issue.sprint_id)
@@ -735,7 +787,19 @@ function SortableIssueRow({
                 <GripVertical size={14} />
               </button>
             )}
-            <TypeIcon type={issue.type} />
+            <div className="relative inline-flex items-center cursor-pointer hover:bg-gray-100 rounded p-0.5">
+              <TypeIcon type={issue.type} />
+              <select
+                value={issue.type}
+                onChange={(e) => onUpdate({ type: e.target.value as IssueWithDetails['type'] })}
+                onClick={(e) => e.stopPropagation()}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              >
+                {projectTypes.map((t) => (
+                  <option key={t.id} value={t.name}>{formatSettingLabel(t.name)}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </td>
       )}
@@ -744,87 +808,130 @@ function SortableIssueRow({
         isCompleted ? 'text-gray-300 line-through' : 'text-gray-400'
       )}>{issue.key}</td>
       {colVisible.summary && (
-        <td className="px-4 py-3 max-w-[260px] border-r border-gray-100">
-          <span className="text-left text-gray-900 font-medium truncate block w-full">
-            {issue.title}
-          </span>
+        <td className="px-4 py-3 max-w-[260px] border-r border-gray-100 text-gray-900 font-medium">
+          <InlineText
+            value={issue.title}
+            onSave={(v) => { if (v.trim()) onUpdate({ title: v.trim() }) }}
+            placeholder="Untitled"
+          />
         </td>
       )}
       {colVisible.parent && (
-        <td className="px-4 py-3 border-r border-gray-100">
-          {issue.epic ? (
-            <span
-              className="text-[11px] font-semibold px-2 py-0.5 rounded-full truncate max-w-[130px] block"
-              style={{ backgroundColor: issue.epic.color + '22', color: issue.epic.color }}
+        <td className="px-4 py-3 border-r border-gray-100" onClick={(e) => e.stopPropagation()}>
+          <div className="relative inline-block w-full cursor-pointer">
+            {issue.epic ? (
+              <span
+                className="text-[11px] font-semibold px-2 py-0.5 rounded-full truncate max-w-[130px] block"
+                style={{ backgroundColor: issue.epic.color + '22', color: issue.epic.color }}
+              >
+                {issue.epic.name}
+              </span>
+            ) : (
+              <span className="text-gray-300 text-xs hover:bg-gray-100 rounded px-1 -mx-1">—</span>
+            )}
+            <select
+              value={issue.epic_id ?? ''}
+              onChange={(e) => onUpdate({ epic_id: e.target.value || null })}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
             >
-              {issue.epic.name}
-            </span>
-          ) : (
-            <span className="text-gray-300 text-xs">—</span>
-          )}
+              <option value="">No epic</option>
+              {epics.map((ep) => (
+                <option key={ep.id} value={ep.id}>{ep.name}</option>
+              ))}
+            </select>
+          </div>
         </td>
       )}
       {colVisible.labels && (
         <td className="px-4 py-3 border-r border-gray-100">
-          {issue.labels?.length > 0 ? (
-            <div className="flex flex-wrap gap-1">
-              {issue.labels.map((l) => (
-                <span
-                  key={l.id}
-                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                  style={{ backgroundColor: l.color + '22', color: l.color }}
-                >
-                  {l.name}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <span className="text-gray-300 text-xs">—</span>
-          )}
+          <InlineLabels
+            value={issue.labels ?? []}
+            allLabels={projectLabels}
+            onSave={(ids) => onUpdate({ label_ids: ids })}
+          />
         </td>
       )}
       {colVisible.status && (
-        <td className="px-4 py-3 border-r border-gray-100"><StatusBadge status={issue.status} color={projectStatuses.find(s => s.name === issue.status)?.color ?? undefined} /></td>
+        <td className="px-4 py-3 border-r border-gray-100" onClick={(e) => e.stopPropagation()}>
+          <div className="relative inline-block cursor-pointer">
+            <StatusBadge status={issue.status} color={projectStatuses.find(s => s.name === issue.status)?.color ?? undefined} />
+            <select
+              value={issue.status}
+              onChange={(e) => onUpdate({ status: e.target.value as IssueWithDetails['status'] })}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            >
+              {projectStatuses.map((s) => (
+                <option key={s.id} value={s.name}>{formatSettingLabel(s.name)}</option>
+              ))}
+            </select>
+          </div>
+        </td>
       )}
       {colVisible.comments && (
         <td className="px-4 py-3 border-r border-gray-100">
-          <span className="flex items-center gap-1 text-xs text-gray-400">
-            <MessageSquare size={13} />
-            <span>
-              {issue.comment_count > 0
-                ? `${issue.comment_count} comment${issue.comment_count === 1 ? '' : 's'}`
-                : 'Add comment'}
-            </span>
-          </span>
+          <InlineComment count={issue.comment_count} members={members} onAdd={onAddComment} />
         </td>
       )}
       {colVisible.sprint && (
-        <td className="px-4 py-3 text-xs text-gray-600 border-r border-gray-100">
-          {sprint ? (
-            <span className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-xs truncate max-w-[120px] block">
-              {sprint.name}
-            </span>
-          ) : (
-            <span className="text-gray-300">—</span>
-          )}
+        <td className="px-4 py-3 text-xs text-gray-600 border-r border-gray-100" onClick={(e) => e.stopPropagation()}>
+          <div className="relative inline-block w-full cursor-pointer">
+            {sprint ? (
+              <span className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-xs truncate max-w-[120px] block">
+                {sprint.name}
+              </span>
+            ) : (
+              <span className="text-gray-300 hover:bg-gray-100 rounded px-1 -mx-1">—</span>
+            )}
+            <select
+              value={issue.sprint_id ?? ''}
+              onChange={(e) => onUpdate({ sprint_id: e.target.value || null })}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            >
+              <option value="">Backlog (no sprint)</option>
+              {sprints.map((sp) => (
+                <option key={sp.id} value={sp.id}>{sp.name}</option>
+              ))}
+            </select>
+          </div>
         </td>
       )}
       {colVisible.assignee && (
-        <td className="px-4 py-3 border-r border-gray-100"><UserCell person={issue.assignee} fallback="Unassigned" /></td>
+        <td className="px-4 py-3 border-r border-gray-100" onClick={(e) => e.stopPropagation()}>
+          <div className="relative inline-block w-full cursor-pointer">
+            <UserCell person={issue.assignee} fallback="Unassigned" />
+            <select
+              value={issue.assignee_id ?? ''}
+              onChange={(e) => onUpdate({ assignee_id: e.target.value || null })}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            >
+              <option value="">Unassigned</option>
+              {members.map((m) => (
+                <option key={m.user_id} value={m.user_id}>{m.profile?.full_name ?? m.user_id}</option>
+              ))}
+            </select>
+          </div>
+        </td>
       )}
       {colVisible.due_date && (
-        <td className="px-4 py-3 border-r border-gray-100">
-          {issue.due_date ? (
-            <span className={cn('text-xs', isOverdue(issue.due_date, projectStatuses.find(s => s.name === issue.status)?.is_completed) ? 'text-red-500 font-medium' : 'text-gray-600')}>
-              {formatDate(issue.due_date)}
-            </span>
-          ) : (
-            <span className="text-gray-300 text-xs">—</span>
-          )}
+        <td className={cn('px-4 py-3 border-r border-gray-100 text-xs', issue.due_date && isOverdue(issue.due_date, projectStatuses.find(s => s.name === issue.status)?.is_completed) ? 'text-red-500 font-medium' : 'text-gray-600')}>
+          <InlineDate value={issue.due_date} onSave={(v) => onUpdate({ due_date: v })} />
         </td>
       )}
       {colVisible.priority && (
-        <td className="px-4 py-3 border-r border-gray-100"><PriorityIcon priority={issue.priority} showLabel /></td>
+        <td className="px-4 py-3 border-r border-gray-100" onClick={(e) => e.stopPropagation()}>
+          <div className="relative inline-block cursor-pointer">
+            <PriorityIcon priority={issue.priority} showLabel />
+            <select
+              value={issue.priority}
+              onChange={(e) => onUpdate({ priority: e.target.value as IssueWithDetails['priority'] })}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            >
+              {ALL_PRIORITIES.map((p) => (
+                <option key={p} value={p}>{priorityLabel(p)}</option>
+              ))}
+            </select>
+          </div>
+        </td>
       )}
       {colVisible.created && (
         <td className="px-4 py-3 text-xs text-gray-400 border-r border-gray-100">{formatDate(issue.created_at)}</td>
@@ -1099,6 +1206,311 @@ function RowActionsButton({
               <ExternalLink size={12} />
               View work item
             </button>
+          </div>
+        </>,
+        document.body
+      )}
+    </>
+  )
+}
+
+// ── Inline editors ──────────────────────────────────────────────────────────
+
+function InlineText({
+  value, onSave, placeholder,
+}: {
+  value: string
+  onSave: (v: string) => void
+  placeholder?: string
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  useEffect(() => setDraft(value), [value])
+
+  if (!editing) {
+    return (
+      <span
+        onClick={(e) => { e.stopPropagation(); setEditing(true) }}
+        className="block cursor-text hover:bg-gray-100 rounded px-1 -mx-1 truncate"
+      >
+        {value || <span className="text-gray-300">{placeholder ?? '—'}</span>}
+      </span>
+    )
+  }
+  return (
+    <input
+      autoFocus
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => { setEditing(false); if (draft !== value) onSave(draft) }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur()
+        if (e.key === 'Escape') { setDraft(value); setEditing(false) }
+      }}
+      onClick={(e) => e.stopPropagation()}
+      className="w-full px-1 -mx-1 border border-blue-500 rounded outline-none text-sm bg-white"
+    />
+  )
+}
+
+function InlineDate({
+  value, onSave,
+}: {
+  value: string | null
+  onSave: (v: string | null) => void
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  const formatted = value
+    ? new Date(value + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : null
+
+  function handleClick(e: React.MouseEvent) {
+    e.stopPropagation()
+    const input = ref.current
+    if (!input) return
+    try {
+      if (typeof (input as HTMLInputElement & { showPicker?: () => void }).showPicker === 'function') {
+        (input as HTMLInputElement & { showPicker: () => void }).showPicker()
+      } else {
+        input.focus()
+        input.click()
+      }
+    } catch {
+      input.focus()
+    }
+  }
+
+  return (
+    <span
+      onClick={handleClick}
+      className="inline-flex items-center gap-1 cursor-pointer hover:bg-gray-100 rounded px-1 -mx-1 py-0.5"
+    >
+      <Calendar size={12} className="text-gray-400 shrink-0" />
+      {formatted ? (
+        <span>{formatted}</span>
+      ) : (
+        <span className="text-gray-400">None</span>
+      )}
+      <input
+        ref={ref}
+        type="date"
+        value={value ?? ''}
+        onChange={(e) => onSave(e.target.value || null)}
+        onClick={(e) => e.stopPropagation()}
+        className="sr-only"
+      />
+    </span>
+  )
+}
+
+function InlineSelect<T extends string>({
+  value, options, onSave, children,
+}: {
+  value: T
+  options: { value: T; label: string }[]
+  onSave: (v: T) => void
+  children: React.ReactNode
+}) {
+  return (
+    <div className="relative inline-block w-full" onClick={(e) => e.stopPropagation()}>
+      {children}
+      <select
+        value={value}
+        onChange={(e) => onSave(e.target.value as T)}
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+// ── Inline labels editor (multi-select popover via portal) ───────────────────
+
+function InlineLabels({
+  value, allLabels, onSave,
+}: {
+  value: ProjectLabelType[]
+  allLabels: ProjectLabelType[]
+  onSave: (labelIds: string[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
+  const buttonRef = useRef<HTMLDivElement>(null)
+  const selectedIds = useMemo(() => new Set(value.map((l) => l.id)), [value])
+
+  function handleOpen(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect()
+      setPosition({ top: rect.bottom + 4, left: rect.left })
+    }
+    setOpen(true)
+  }
+
+  function toggle(id: string) {
+    const next = new Set(selectedIds)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    onSave(Array.from(next))
+  }
+
+  return (
+    <>
+      <div
+        ref={buttonRef}
+        onClick={handleOpen}
+        className="cursor-pointer hover:bg-gray-100 rounded px-1 -mx-1 py-0.5 min-h-[24px] flex items-center"
+      >
+        {value.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {value.map((l) => (
+              <span
+                key={l.id}
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                style={{ backgroundColor: l.color + '22', color: l.color }}
+              >
+                {l.name}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span className="text-gray-300 text-xs">—</span>
+        )}
+      </div>
+      {open && position && typeof document !== 'undefined' && createPortal(
+        <>
+          <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
+          <div
+            className="fixed z-[70] bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[200px] max-h-[300px] overflow-y-auto"
+            style={{ top: position.top, left: position.left }}
+          >
+            <p className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Labels</p>
+            {allLabels.length === 0 && (
+              <p className="px-3 py-2 text-xs text-gray-400 italic">No labels in this project</p>
+            )}
+            {allLabels.map((l) => (
+              <label key={l.id} className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(l.id)}
+                  onChange={() => toggle(l.id)}
+                  className="rounded border-gray-300"
+                />
+                <span
+                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                  style={{ backgroundColor: l.color + '22', color: l.color }}
+                >
+                  {l.name}
+                </span>
+              </label>
+            ))}
+          </div>
+        </>,
+        document.body
+      )}
+    </>
+  )
+}
+
+// ── Inline comment editor (popover via portal) ──────────────────────────────
+
+function InlineComment({
+  count, members, onAdd,
+}: {
+  count: number
+  members: ProjectMemberPreview[]
+  onAdd: (contentJson: JSONContent) => void | Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const getJsonRef = useRef<(() => JSONContent) | null>(null)
+
+  function handleOpen(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect()
+      setPosition({ top: rect.bottom + 4, left: rect.left })
+    }
+    setOpen(true)
+  }
+
+  async function handleSubmit() {
+    if (!getJsonRef.current || submitting) return
+    const content = getJsonRef.current()
+    const text = JSON.stringify(content)
+    // Skip if empty
+    if (!content.content || content.content.length === 0 || text === '{"type":"doc","content":[{"type":"paragraph"}]}') return
+    setSubmitting(true)
+    await onAdd(content)
+    setSubmitting(false)
+    setOpen(false)
+  }
+
+  async function uploadImage(file: File): Promise<string | null> {
+    const formData = new FormData()
+    formData.append('file', file)
+    const { data } = await uploadCommentImageAction(formData)
+    return data
+  }
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={handleOpen}
+        className="flex items-center gap-1 text-xs text-gray-400 hover:bg-gray-100 rounded px-1 -mx-1 py-0.5 transition-colors"
+      >
+        <MessageSquare size={13} />
+        <span>
+          {count > 0
+            ? `${count} comment${count === 1 ? '' : 's'}`
+            : 'Add comment'}
+        </span>
+      </button>
+      {open && position && typeof document !== 'undefined' && createPortal(
+        <>
+          <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
+          <div
+            className="fixed z-[70] bg-white border border-gray-200 rounded-lg shadow-lg p-3 w-[520px] max-w-[calc(100vw-24px)]"
+            style={{ top: position.top, left: position.left }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-xs font-semibold text-gray-700 mb-2">Add comment</p>
+            <RichTextEditor
+              initialContent={null}
+              members={members.map((m) => ({
+                id: m.id,
+                user_id: m.user_id,
+                role: m.role,
+                profile: m.profile,
+              }))}
+              placeholder="Write a comment… use @ to mention someone"
+              allowMentions
+              uploadImage={uploadImage}
+              onReady={(getJson) => { getJsonRef.current = getJson }}
+              minHeight="100px"
+            />
+            <div className="flex justify-end gap-2 mt-2">
+              <button
+                onClick={() => setOpen(false)}
+                className="px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={submitting}
+                className="px-3 py-1 text-xs font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {submitting ? 'Saving...' : 'Comment'}
+              </button>
+            </div>
           </div>
         </>,
         document.body

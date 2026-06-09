@@ -483,24 +483,35 @@ export async function updateIssue(
     }
   }
 
+  const updatePayload: Record<string, unknown> = {
+    ...(data.title !== undefined && { title: data.title.trim() }),
+    ...(data.description !== undefined && { description: data.description?.trim() || null }),
+    ...(data.status !== undefined && { status: data.status }),
+    ...(data.priority !== undefined && { priority: data.priority }),
+    ...(data.type !== undefined && { type: data.type }),
+    ...(data.assignee_id !== undefined && { assignee_id: data.assignee_id }),
+    ...(data.due_date !== undefined && { due_date: data.due_date }),
+    ...(data.position !== undefined && { position: data.position }),
+    ...(data.sprint_id !== undefined && { sprint_id: data.sprint_id }),
+    ...(data.epic_id !== undefined && { epic_id: data.epic_id }),
+    ...(data.start_date !== undefined && { start_date: data.start_date }),
+    ...(data.slack_thread !== undefined && { slack_thread: data.slack_thread }),
+    ...(data.pause_reason !== undefined && { pause_reason: data.pause_reason }),
+    ...(data.resolved_at !== undefined && { resolved_at: data.resolved_at }),
+  }
+
+  // Nothing to update on the issues table itself (e.g. only label_ids changed).
+  // Return the current row so callers can keep handling label/relation updates.
+  if (Object.keys(updatePayload).length === 0) {
+    const { data: current, error: fetchError } = await supabase
+      .from('issues').select('*').eq('id', issueId).single()
+    if (fetchError) return { data: null, error: 'Error al cargar el ticket.' }
+    return { data: current as unknown as Issue, error: null }
+  }
+
   const { data: result, error } = await supabase
     .from('issues')
-    .update({
-      ...(data.title !== undefined && { title: data.title.trim() }),
-      ...(data.description !== undefined && { description: data.description?.trim() || null }),
-      ...(data.status !== undefined && { status: data.status }),
-      ...(data.priority !== undefined && { priority: data.priority }),
-      ...(data.type !== undefined && { type: data.type }),
-      ...(data.assignee_id !== undefined && { assignee_id: data.assignee_id }),
-      ...(data.due_date !== undefined && { due_date: data.due_date }),
-      ...(data.position !== undefined && { position: data.position }),
-      ...(data.sprint_id !== undefined && { sprint_id: data.sprint_id }),
-      ...(data.epic_id !== undefined && { epic_id: data.epic_id }),
-      ...(data.start_date !== undefined && { start_date: data.start_date }),
-      ...(data.slack_thread !== undefined && { slack_thread: data.slack_thread }),
-      ...(data.pause_reason !== undefined && { pause_reason: data.pause_reason }),
-      ...(data.resolved_at !== undefined && { resolved_at: data.resolved_at }),
-    })
+    .update(updatePayload as never)
     .eq('id', issueId)
     .select()
     .single()
