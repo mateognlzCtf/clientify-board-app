@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import { Plus, Search, Ticket, MessageSquare, GripVertical, Layers, ChevronDown, CircleDot, Zap, Users, Flag } from 'lucide-react'
+import { Plus, Search, Ticket, MessageSquare, GripVertical, Layers, ChevronDown, CircleDot, Zap, Users, Flag, Settings2, MoreHorizontal, ExternalLink } from 'lucide-react'
 import { JiraFilterButton, type FilterFieldDef } from '@/components/issues/JiraFilterButton'
 import { AssigneeAvatars } from '@/components/issues/AssigneeAvatars'
 import {
@@ -30,6 +31,8 @@ import { cn } from '@/lib/utils/cn'
 import { formatDate, isOverdue } from '@/lib/utils/dates'
 import { useRefreshOnFocus } from '@/lib/hooks/useRefreshOnFocus'
 import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh'
+import { useListColumnWidths, type ListColumnId } from '@/lib/hooks/useListColumnWidths'
+import { useListColumnVisibility, LIST_COLUMN_LABELS, LIST_COLUMN_ORDER } from '@/lib/hooks/useListColumnVisibility'
 import type { IssueWithDetails, IssueCreate, IssueUpdate, IssuePriority } from '@/types/issue.types'
 import type { ProjectMemberPreview } from '@/services/projects.service'
 import type { Sprint } from '@/types/sprint.types'
@@ -38,8 +41,20 @@ import {
   createIssueAction,
   updateIssueAction,
   deleteIssueAction,
-  loadIssuesPageAction,
+  loadIssuesListLiteAction,
 } from '../actions'
+import type { IssueListLite } from '@/types/issue.types'
+
+function liteToFull(lite: IssueListLite): IssueWithDetails {
+  return {
+    ...lite,
+    description: null,
+    start_date: null,
+    slack_thread: null,
+    pause_reason: null,
+    resolved_at: null,
+  }
+}
 
 interface ActiveFilters {
   statuses: string[]
@@ -67,6 +82,10 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
   const searchParams = useSearchParams()
   const { toast } = useToast()
   const { statuses: projectStatuses, types: projectTypes, labels: projectLabels } = useProjectSettings()
+  const { widths: colWidths, setWidth: setColWidth } = useListColumnWidths()
+  const { visible: colVisible, toggle: toggleColumn } = useListColumnVisibility()
+  const [columnsMenuOpen, setColumnsMenuOpen] = useState(false)
+  const [rowMenuOpen, setRowMenuOpen] = useState<string | null>(null)
   useRefreshOnFocus(() => setDetailTarget(null))
   useRealtimeRefresh(projectId)
 
@@ -164,8 +183,9 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
         statuses: [], priorities: [], types: [], assignees: [], labels: [],
       } : filters
       const limitToUse = isSmallProject ? 500 : pageSize
-      const { data } = await loadIssuesPageAction(projectId, pageParam, filtersToSend, limitToUse)
-      return data ?? { data: [], hasMore: false }
+      const { data } = await loadIssuesListLiteAction(projectId, pageParam, filtersToSend, limitToUse)
+      if (!data) return { data: [] as IssueWithDetails[], hasMore: false }
+      return { data: data.data.map(liteToFull), hasMore: data.hasMore }
     },
     getNextPageParam: (lastPage, allPages) =>
       lastPage.hasMore ? allPages.reduce((acc, p) => acc + p.data.length, 0) : undefined,
@@ -461,24 +481,27 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
       {filtered.length > 0 ? (
         listGroupBy !== 'none' && groupedIssues ? (
           <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleGroupedDragEnd}>
-            <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-              <table className="w-full text-sm whitespace-nowrap">
+            <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto" style={{ width: 'max-content', maxWidth: '100%' }}>
+              <table className="text-sm whitespace-nowrap" style={{ tableLayout: 'fixed', width: 'max-content' }}>
                 <thead>
                   <tr className="border-b border-gray-200 bg-gray-50">
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28 border-r border-gray-200">Type</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24 border-r border-gray-200">Key</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[200px] border-r border-gray-200">Summary</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36 border-r border-gray-200">Parent</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36 border-r border-gray-200">Labels</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32 border-r border-gray-200">Status</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24 border-r border-gray-200">Comments</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32 border-r border-gray-200">Sprint</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32 border-r border-gray-200">Assignee</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28 border-r border-gray-200">Due date</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24 border-r border-gray-200">Priority</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28 border-r border-gray-200">Created</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28 border-r border-gray-200">Updated</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Reporter</th>
+                    {colVisible.type && <ResizableTh id="type" label="Type" widths={colWidths} setWidth={setColWidth} />}
+                    <ResizableTh id="key" label="Key" widths={colWidths} setWidth={setColWidth} />
+                    {colVisible.summary && <ResizableTh id="summary" label="Summary" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.parent && <ResizableTh id="parent" label="Parent" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.labels && <ResizableTh id="labels" label="Labels" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.status && <ResizableTh id="status" label="Status" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.comments && <ResizableTh id="comments" label="Comments" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.sprint && <ResizableTh id="sprint" label="Sprint" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.assignee && <ResizableTh id="assignee" label="Assignee" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.due_date && <ResizableTh id="due_date" label="Due date" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.priority && <ResizableTh id="priority" label="Priority" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.created && <ResizableTh id="created" label="Created" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.updated && <ResizableTh id="updated" label="Updated" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.reporter && <ResizableTh id="reporter" label="Reporter" widths={colWidths} setWidth={setColWidth} />}
+                    <th style={{ width: 56, minWidth: 56, maxWidth: 56 }} className="sticky right-0 z-10 bg-gray-50 border-l border-gray-200 px-2 py-2.5">
+                      <ColumnsConfigButton visible={colVisible} onToggle={toggleColumn} />
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -521,7 +544,10 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
                               key={issue.id}
                               issue={issue}
                               sprints={sprints}
-                              onDetail={() => setDetailTarget(issue)}
+                              onDetail={() => router.push(`/project/${projectId}/issue/${issue.id}`)}
+                              colVisible={colVisible}
+                              menuOpen={rowMenuOpen === issue.id}
+                              onMenuToggle={(open) => setRowMenuOpen(open ? issue.id : null)}
                             />
                           ))}
                         </>
@@ -542,24 +568,27 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
         ) : (
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <SortableContext items={filtered.map((i) => i.id)} strategy={verticalListSortingStrategy}>
-            <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-              <table className="w-full text-sm whitespace-nowrap">
+            <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto" style={{ width: 'max-content', maxWidth: '100%' }}>
+              <table className="text-sm whitespace-nowrap" style={{ tableLayout: 'fixed', width: 'max-content' }}>
                 <thead>
                   <tr className="border-b border-gray-200 bg-gray-50">
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28 border-r border-gray-200">Type</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24 border-r border-gray-200">Key</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[200px] border-r border-gray-200">Summary</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36 border-r border-gray-200">Parent</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36 border-r border-gray-200">Labels</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32 border-r border-gray-200">Status</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24 border-r border-gray-200">Comments</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32 border-r border-gray-200">Sprint</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32 border-r border-gray-200">Assignee</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28 border-r border-gray-200">Due date</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24 border-r border-gray-200">Priority</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28 border-r border-gray-200">Created</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28 border-r border-gray-200">Updated</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Reporter</th>
+                    {colVisible.type && <ResizableTh id="type" label="Type" widths={colWidths} setWidth={setColWidth} />}
+                    <ResizableTh id="key" label="Key" widths={colWidths} setWidth={setColWidth} />
+                    {colVisible.summary && <ResizableTh id="summary" label="Summary" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.parent && <ResizableTh id="parent" label="Parent" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.labels && <ResizableTh id="labels" label="Labels" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.status && <ResizableTh id="status" label="Status" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.comments && <ResizableTh id="comments" label="Comments" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.sprint && <ResizableTh id="sprint" label="Sprint" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.assignee && <ResizableTh id="assignee" label="Assignee" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.due_date && <ResizableTh id="due_date" label="Due date" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.priority && <ResizableTh id="priority" label="Priority" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.created && <ResizableTh id="created" label="Created" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.updated && <ResizableTh id="updated" label="Updated" widths={colWidths} setWidth={setColWidth} />}
+                    {colVisible.reporter && <ResizableTh id="reporter" label="Reporter" widths={colWidths} setWidth={setColWidth} />}
+                    <th style={{ width: 56, minWidth: 56, maxWidth: 56 }} className="sticky right-0 z-10 bg-gray-50 border-l border-gray-200 px-2 py-2.5">
+                      <ColumnsConfigButton visible={colVisible} onToggle={toggleColumn} />
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -568,7 +597,10 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
                       key={issue.id}
                       issue={issue}
                       sprints={sprints}
-                      onDetail={() => setDetailTarget(issue)}
+                      onDetail={() => router.push(`/project/${projectId}/issue/${issue.id}`)}
+                      colVisible={colVisible}
+                      menuOpen={rowMenuOpen === issue.id}
+                      onMenuToggle={(open) => setRowMenuOpen(open ? issue.id : null)}
                     />
                   ))}
                 </tbody>
@@ -666,111 +698,150 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
 // ── Sortable row ─────────────────────────────────────────────────────────────
 
 function SortableIssueRow({
-  issue, sprints, onDetail, disableDrag,
+  issue, sprints, onDetail, disableDrag, colVisible, menuOpen, onMenuToggle,
 }: {
   issue: IssueWithDetails
   sprints: Sprint[]
   onDetail: () => void
   disableDrag?: boolean
+  colVisible: Record<ListColumnId, boolean>
+  menuOpen: boolean
+  onMenuToggle: (open: boolean) => void
 }) {
   const { statuses: projectStatuses } = useProjectSettings()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: issue.id, disabled: disableDrag })
   const style = { transform: CSS.Transform.toString(transform), transition }
   const sprint = sprints.find((s) => s.id === issue.sprint_id)
+  const isCompleted = projectStatuses.find((s) => s.name === issue.status)?.is_completed ?? false
 
   return (
     <tr
       ref={setNodeRef}
       style={style}
-      onClick={onDetail}
-      className={cn('hover:bg-gray-50 transition-colors cursor-pointer', isDragging && 'opacity-40 bg-blue-50')}
+      className={cn('group hover:bg-gray-50 transition-colors', isDragging && 'opacity-40 bg-blue-50')}
     >
-      <td className="px-3 py-3 border-r border-gray-100" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-2">
-          {disableDrag ? (
-            <span className="w-4 h-4 block shrink-0" />
-          ) : (
-            <button
-              {...attributes}
-              {...listeners}
-              className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 p-0.5 rounded shrink-0"
-              tabIndex={-1}
-            >
-              <GripVertical size={14} />
-            </button>
-          )}
-          <TypeIcon type={issue.type} />
-        </div>
-      </td>
-      <td className="px-4 py-3 font-mono text-xs text-gray-400 border-r border-gray-100 hover:text-blue-600 transition-colors">{issue.key}</td>
-      <td className="px-4 py-3 max-w-[260px] border-r border-gray-100">
-        <span className="text-left text-gray-900 font-medium truncate block w-full">
-          {issue.title}
-        </span>
-      </td>
-      <td className="px-4 py-3 border-r border-gray-100">
-        {issue.epic ? (
-          <span
-            className="text-[11px] font-semibold px-2 py-0.5 rounded-full truncate max-w-[130px] block"
-            style={{ backgroundColor: issue.epic.color + '22', color: issue.epic.color }}
-          >
-            {issue.epic.name}
-          </span>
-        ) : (
-          <span className="text-gray-300 text-xs">—</span>
-        )}
-      </td>
-      <td className="px-4 py-3 border-r border-gray-100">
-        {issue.labels?.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
-            {issue.labels.map((l) => (
-              <span
-                key={l.id}
-                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                style={{ backgroundColor: l.color + '22', color: l.color }}
+      {colVisible.type && (
+        <td className="px-3 py-3 border-r border-gray-100" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center gap-2">
+            {disableDrag ? (
+              <span className="w-4 h-4 block shrink-0" />
+            ) : (
+              <button
+                {...attributes}
+                {...listeners}
+                className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 p-0.5 rounded shrink-0"
+                tabIndex={-1}
               >
-                {l.name}
-              </span>
-            ))}
+                <GripVertical size={14} />
+              </button>
+            )}
+            <TypeIcon type={issue.type} />
           </div>
-        ) : (
-          <span className="text-gray-300 text-xs">—</span>
-        )}
-      </td>
-      <td className="px-4 py-3 border-r border-gray-100"><StatusBadge status={issue.status} color={projectStatuses.find(s => s.name === issue.status)?.color ?? undefined} /></td>
-      <td className="px-4 py-3 border-r border-gray-100">
-        <span className="flex items-center gap-1 text-xs text-gray-400">
-          <MessageSquare size={13} />
-          <span>
-            {issue.comment_count > 0
-              ? `${issue.comment_count} comment${issue.comment_count === 1 ? '' : 's'}`
-              : 'Add comment'}
+        </td>
+      )}
+      <td className={cn(
+        'px-4 py-3 font-mono text-xs border-r border-gray-100 hover:text-blue-600 transition-colors',
+        isCompleted ? 'text-gray-300 line-through' : 'text-gray-400'
+      )}>{issue.key}</td>
+      {colVisible.summary && (
+        <td className="px-4 py-3 max-w-[260px] border-r border-gray-100">
+          <span className="text-left text-gray-900 font-medium truncate block w-full">
+            {issue.title}
           </span>
-        </span>
-      </td>
-      <td className="px-4 py-3 text-xs text-gray-600 border-r border-gray-100">
-        {sprint ? (
-          <span className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-xs truncate max-w-[120px] block">
-            {sprint.name}
+        </td>
+      )}
+      {colVisible.parent && (
+        <td className="px-4 py-3 border-r border-gray-100">
+          {issue.epic ? (
+            <span
+              className="text-[11px] font-semibold px-2 py-0.5 rounded-full truncate max-w-[130px] block"
+              style={{ backgroundColor: issue.epic.color + '22', color: issue.epic.color }}
+            >
+              {issue.epic.name}
+            </span>
+          ) : (
+            <span className="text-gray-300 text-xs">—</span>
+          )}
+        </td>
+      )}
+      {colVisible.labels && (
+        <td className="px-4 py-3 border-r border-gray-100">
+          {issue.labels?.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {issue.labels.map((l) => (
+                <span
+                  key={l.id}
+                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                  style={{ backgroundColor: l.color + '22', color: l.color }}
+                >
+                  {l.name}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span className="text-gray-300 text-xs">—</span>
+          )}
+        </td>
+      )}
+      {colVisible.status && (
+        <td className="px-4 py-3 border-r border-gray-100"><StatusBadge status={issue.status} color={projectStatuses.find(s => s.name === issue.status)?.color ?? undefined} /></td>
+      )}
+      {colVisible.comments && (
+        <td className="px-4 py-3 border-r border-gray-100">
+          <span className="flex items-center gap-1 text-xs text-gray-400">
+            <MessageSquare size={13} />
+            <span>
+              {issue.comment_count > 0
+                ? `${issue.comment_count} comment${issue.comment_count === 1 ? '' : 's'}`
+                : 'Add comment'}
+            </span>
           </span>
-        ) : (
-          <span className="text-gray-300">—</span>
-        )}
+        </td>
+      )}
+      {colVisible.sprint && (
+        <td className="px-4 py-3 text-xs text-gray-600 border-r border-gray-100">
+          {sprint ? (
+            <span className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-xs truncate max-w-[120px] block">
+              {sprint.name}
+            </span>
+          ) : (
+            <span className="text-gray-300">—</span>
+          )}
+        </td>
+      )}
+      {colVisible.assignee && (
+        <td className="px-4 py-3 border-r border-gray-100"><UserCell person={issue.assignee} fallback="Unassigned" /></td>
+      )}
+      {colVisible.due_date && (
+        <td className="px-4 py-3 border-r border-gray-100">
+          {issue.due_date ? (
+            <span className={cn('text-xs', isOverdue(issue.due_date, projectStatuses.find(s => s.name === issue.status)?.is_completed) ? 'text-red-500 font-medium' : 'text-gray-600')}>
+              {formatDate(issue.due_date)}
+            </span>
+          ) : (
+            <span className="text-gray-300 text-xs">—</span>
+          )}
+        </td>
+      )}
+      {colVisible.priority && (
+        <td className="px-4 py-3 border-r border-gray-100"><PriorityIcon priority={issue.priority} showLabel /></td>
+      )}
+      {colVisible.created && (
+        <td className="px-4 py-3 text-xs text-gray-400 border-r border-gray-100">{formatDate(issue.created_at)}</td>
+      )}
+      {colVisible.updated && (
+        <td className="px-4 py-3 text-xs text-gray-400 border-r border-gray-100">{formatDate(issue.updated_at)}</td>
+      )}
+      {colVisible.reporter && (
+        <td className="px-4 py-3 border-r border-gray-100"><UserCell person={issue.reporter} fallback="Unknown" /></td>
+      )}
+      <td
+        className="sticky right-0 z-10 bg-white group-hover:bg-gray-50 border-l border-gray-100 px-2 py-3 transition-colors"
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: 56 }}
+      >
+        <RowActionsButton open={menuOpen} onToggle={onMenuToggle} onView={onDetail} />
       </td>
-      <td className="px-4 py-3 border-r border-gray-100"><UserCell person={issue.assignee} fallback="Unassigned" /></td>
-      <td className="px-4 py-3 border-r border-gray-100">
-        {issue.due_date ? (
-          <span className={cn('text-xs', isOverdue(issue.due_date, projectStatuses.find(s => s.name === issue.status)?.is_completed) ? 'text-red-500 font-medium' : 'text-gray-600')}>
-            {formatDate(issue.due_date)}
-          </span>
-        ) : (
-          <span className="text-gray-300 text-xs">—</span>
-        )}
-      </td>
-      <td className="px-4 py-3 border-r border-gray-100"><PriorityIcon priority={issue.priority} showLabel /></td>
-      <td className="px-4 py-3 text-xs text-gray-400 border-r border-gray-100">{formatDate(issue.created_at)}</td>
-      <td className="px-4 py-3 text-xs text-gray-400 border-r border-gray-100">{formatDate(issue.updated_at)}</td>
-      <td className="px-4 py-3"><UserCell person={issue.reporter} fallback="Unknown" /></td>
     </tr>
   )
 }
@@ -867,5 +938,171 @@ function UserCell({ person, fallback }: { person: { id: string; full_name: strin
       )}
       <span className="text-xs text-gray-600 truncate max-w-[80px]">{person.full_name ?? 'Unknown'}</span>
     </div>
+  )
+}
+
+// ── Resizable column header ──────────────────────────────────────────────────
+
+function ResizableTh({
+  id, label, widths, setWidth, last,
+}: {
+  id: ListColumnId
+  label: string
+  widths: Record<ListColumnId, number>
+  setWidth: (id: ListColumnId, next: number) => void
+  last?: boolean
+}) {
+  const width = widths[id]
+
+  function handleResizeStart(e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const startWidth = width
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    function onMouseMove(ev: MouseEvent) {
+      const next = startWidth + (ev.clientX - startX)
+      setWidth(id, next)
+    }
+    function onMouseUp() {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+  }
+
+  return (
+    <th
+      style={{ width, minWidth: width, maxWidth: width }}
+      className={cn(
+        'relative text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide',
+        !last && 'border-r border-gray-200'
+      )}
+    >
+      <span className="truncate block">{label}</span>
+      <span
+        role="separator"
+        aria-orientation="vertical"
+        onMouseDown={handleResizeStart}
+        className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-400/40 active:bg-blue-500/60 transition-colors z-10"
+      />
+    </th>
+  )
+}
+
+// ── Columns config button (renders menu via portal to escape table overflow) ──
+
+function ColumnsConfigButton({
+  visible, onToggle,
+}: {
+  visible: Record<ListColumnId, boolean>
+  onToggle: (id: ListColumnId) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState<{ top: number; right: number } | null>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+
+  function handleOpen() {
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect()
+      setPosition({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+    }
+    setOpen(true)
+  }
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => (open ? setOpen(false) : handleOpen())}
+        className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+        title="Configure columns"
+      >
+        <Settings2 size={14} />
+      </button>
+      {open && position && typeof document !== 'undefined' && createPortal(
+        <>
+          <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
+          <div
+            className="fixed z-[70] bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[180px] text-left"
+            style={{ top: position.top, right: position.right }}
+          >
+            <p className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Columns</p>
+            {LIST_COLUMN_ORDER.map((id) => (
+              <label key={id} className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={visible[id]}
+                  onChange={() => onToggle(id)}
+                  className="rounded border-gray-300"
+                />
+                {LIST_COLUMN_LABELS[id]}
+              </label>
+            ))}
+          </div>
+        </>,
+        document.body
+      )}
+    </>
+  )
+}
+
+// ── Row actions button (3-dots menu via portal to escape table overflow) ────
+
+function RowActionsButton({
+  open, onToggle, onView,
+}: {
+  open: boolean
+  onToggle: (open: boolean) => void
+  onView: () => void
+}) {
+  const [position, setPosition] = useState<{ top: number; right: number } | null>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+
+  function handleOpen() {
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect()
+      setPosition({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+    }
+    onToggle(true)
+  }
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => (open ? onToggle(false) : handleOpen())}
+        className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+        title="Actions"
+      >
+        <MoreHorizontal size={14} />
+      </button>
+      {open && position && typeof document !== 'undefined' && createPortal(
+        <>
+          <div className="fixed inset-0 z-[60]" onClick={() => onToggle(false)} />
+          <div
+            className="fixed z-[70] bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]"
+            style={{ top: position.top, right: position.right }}
+          >
+            <button
+              type="button"
+              onClick={() => { onToggle(false); onView() }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 text-left"
+            >
+              <ExternalLink size={12} />
+              View work item
+            </button>
+          </div>
+        </>,
+        document.body
+      )}
+    </>
   )
 }

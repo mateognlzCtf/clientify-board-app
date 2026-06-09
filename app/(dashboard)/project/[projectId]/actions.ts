@@ -10,8 +10,11 @@ import {
   updateIssue as updateIssueService,
   deleteIssue as deleteIssueService,
   getIssuesPaginated,
+  getIssuesListLite,
   type IssuesPageFilters,
   type IssuesPageResult,
+  type IssuesListLiteFilters,
+  type IssuesListLiteResult,
 } from '@/services/issues.service'
 import { setIssueLabels } from '@/services/project-labels.service'
 import type { IssueCreate, IssueUpdate, Issue } from '@/types/issue.types'
@@ -354,5 +357,17 @@ export async function loadIssuesPageAction(
   await getAuthenticatedUser()
   const supabase = createAdminClient()
   return getIssuesPaginated(supabase, projectId, { limit, offset, filters })
+}
+
+/** Lightweight paginated load for the List view (no description, no comments, no joins beyond assignee + labels). */
+export async function loadIssuesListLiteAction(
+  projectId: string,
+  offset: number,
+  filters: IssuesListLiteFilters,
+  limit: number = 100,
+): Promise<ServiceResult<IssuesListLiteResult>> {
+  await getAuthenticatedUser()
+  const supabase = createAdminClient()
+  return getIssuesListLite(supabase, projectId, { limit, offset, filters })
 }
 

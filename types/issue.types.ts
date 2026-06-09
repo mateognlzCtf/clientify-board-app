@@ -69,3 +69,31 @@ export interface IssueWithDetails extends Issue {
   comment_count: number
   labels: ProjectLabel[]
 }
+
+/**
+ * Lightweight issue shape for list views: all the fields shown in the row,
+ * but WITHOUT description (the heaviest field — can be MBs if Tiptap content
+ * embeds images). ~80-90% smaller payload than IssueWithDetails on average.
+ */
+export interface IssueListLite {
+  id: string
+  project_id: string
+  key: string
+  title: string
+  status: IssueStatus
+  priority: IssuePriority
+  type: IssueType
+  assignee_id: string | null
+  reporter_id: string
+  position: number
+  sprint_id: string | null
+  epic_id: string | null
+  due_date: string | null
+  created_at: string
+  updated_at: string
+  assignee: { id: string; full_name: string | null; avatar_url: string | null; status: string } | null
+  reporter: { id: string; full_name: string | null; avatar_url: string | null; status: string }
+  epic: { id: string; name: string; color: string } | null
+  comment_count: number
+  labels: ProjectLabel[]
+}
