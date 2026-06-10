@@ -97,6 +97,7 @@ export interface IssuesListLiteFilters {
   types?: string[]
   assignees?: string[]
   labels?: string[]
+  parents?: string[]
   search?: string
 }
 
@@ -109,6 +110,7 @@ export interface IssuesListLiteOptions {
 export interface IssuesListLiteResult {
   data: IssueListLite[]
   hasMore: boolean
+  total: number
 }
 
 type RawIssueListLite = {
@@ -155,7 +157,7 @@ export async function getIssuesListLite(
       .in('label_id', filters.labels)
     labelFilteredIds = [...new Set((labelRows ?? []).map((r) => r.issue_id))]
     if (labelFilteredIds.length === 0) {
-      return { data: { data: [], hasMore: false }, error: null }
+      return { data: { data: [], hasMore: false, total: 0 }, error: null }
     }
   }
 
@@ -168,7 +170,7 @@ export async function getIssuesListLite(
       epic:epics(id, name, color),
       comments(count),
       issue_labels(label:project_labels(id, name, color, project_id, created_at))
-    `)
+    `, { count: 'exact' })
     .eq('project_id', projectId)
 
   if (filters.statuses && filters.statuses.length > 0) {
@@ -191,6 +193,17 @@ export async function getIssuesListLite(
       query = query.in('assignee_id', userIds)
     }
   }
+  if (filters.parents && filters.parents.length > 0) {
+    const includesNone = filters.parents.includes('__none__')
+    const epicIds = filters.parents.filter((id) => id !== '__none__')
+    if (includesNone && epicIds.length > 0) {
+      query = query.or(`epic_id.is.null,epic_id.in.(${epicIds.join(',')})`)
+    } else if (includesNone) {
+      query = query.is('epic_id', null)
+    } else {
+      query = query.in('epic_id', epicIds)
+    }
+  }
   if (labelFilteredIds !== null) {
     query = query.in('id', labelFilteredIds)
   }
@@ -203,7 +216,7 @@ export async function getIssuesListLite(
     .order('position', { ascending: true })
     .range(offset, offset + limit)
 
-  const { data, error } = await query
+  const { data, error, count } = await query
   if (error) {
     console.error('[getIssuesListLite]', error)
     return { data: null, error: 'Error al cargar los tickets.' }
@@ -236,7 +249,104 @@ export async function getIssuesListLite(
     labels: (row.issue_labels ?? []).map((il) => il.label),
   }))
 
-  return { data: { data: issues, hasMore }, error: null }
+  return { data: { data: issues, hasMore, total: count ?? sliced.length }, error: null }
+}
+
+/**
+ * Returns ticket counts grouped by the given field, with the same filters as
+ * the list view. Lightweight: only fetches the grouping column for every
+ * matching row, then counts client-side. Used to show real per-group totals
+ * even when the list itself is paginated.
+ */
+export type IssueGroupBy = 'status' | 'sprint' | 'assignee' | 'priority'
+
+export async function getIssueGroupCounts(
+  supabase: Client,
+  projectId: string,
+  options: { filters?: IssuesListLiteFilters; groupBy: IssueGroupBy }
+): Promise<ServiceResult<Record<string, number>>> {
+  const filters = options.filters ?? {}
+  const fieldMap: Record<IssueGroupBy, 'status' | 'sprint_id' | 'assignee_id' | 'priority'> = {
+    status: 'status',
+    sprint: 'sprint_id',
+    assignee: 'assignee_id',
+    priority: 'priority',
+  }
+  const field = fieldMap[options.groupBy]
+  const nullKey = options.groupBy === 'sprint' ? '__none__'
+    : options.groupBy === 'assignee' ? '__unassigned__'
+    : ''
+
+  let labelFilteredIds: string[] | null = null
+  if (filters.labels && filters.labels.length > 0) {
+    const { data: labelRows } = await supabase
+      .from('issue_labels')
+      .select('issue_id')
+      .in('label_id', filters.labels)
+    labelFilteredIds = [...new Set((labelRows ?? []).map((r) => r.issue_id))]
+    if (labelFilteredIds.length === 0) {
+      return { data: {}, error: null }
+    }
+  }
+
+  let query = supabase
+    .from('issues')
+    .select(field)
+    .eq('project_id', projectId)
+
+  if (filters.statuses && filters.statuses.length > 0) {
+    query = query.in('status', filters.statuses)
+  }
+  if (filters.priorities && filters.priorities.length > 0) {
+    query = query.in('priority', filters.priorities)
+  }
+  if (filters.types && filters.types.length > 0) {
+    query = query.in('type', filters.types)
+  }
+  if (filters.assignees && filters.assignees.length > 0) {
+    const includesUnassigned = filters.assignees.includes('__unassigned__')
+    const userIds = filters.assignees.filter((id) => id !== '__unassigned__')
+    if (includesUnassigned && userIds.length > 0) {
+      query = query.or(`assignee_id.is.null,assignee_id.in.(${userIds.join(',')})`)
+    } else if (includesUnassigned) {
+      query = query.is('assignee_id', null)
+    } else {
+      query = query.in('assignee_id', userIds)
+    }
+  }
+  if (filters.parents && filters.parents.length > 0) {
+    const includesNone = filters.parents.includes('__none__')
+    const epicIds = filters.parents.filter((id) => id !== '__none__')
+    if (includesNone && epicIds.length > 0) {
+      query = query.or(`epic_id.is.null,epic_id.in.(${epicIds.join(',')})`)
+    } else if (includesNone) {
+      query = query.is('epic_id', null)
+    } else {
+      query = query.in('epic_id', epicIds)
+    }
+  }
+  if (labelFilteredIds !== null) {
+    query = query.in('id', labelFilteredIds)
+  }
+  if (filters.search && filters.search.trim()) {
+    const q = filters.search.trim().replace(/[%_]/g, '\\$&')
+    query = query.or(`title.ilike.%${q}%,key.ilike.%${q}%`)
+  }
+
+  const { data, error } = await query
+  if (error) {
+    console.error('[getIssueGroupCounts]', error)
+    return { data: null, error: 'Error al cargar contadores por grupo.' }
+  }
+
+  const counts: Record<string, number> = {}
+  for (const row of (data ?? []) as Array<Record<string, string | null>>) {
+    const value = row[field]
+    const key = value ?? nullKey
+    counts[key] = (counts[key] ?? 0) + 1
+  }
+
+  return { data: counts, error: null }
 }
 
 export interface IssuesPageFilters {

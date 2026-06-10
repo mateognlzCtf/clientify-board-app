@@ -16,9 +16,9 @@ export function ProjectLayoutShell({ children, header }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full overflow-hidden">
       {header}
-      <div className="flex-1 overflow-auto">{children}</div>
+      <div className="flex-1 min-h-0 overflow-auto relative">{children}</div>
     </div>
   )
 }

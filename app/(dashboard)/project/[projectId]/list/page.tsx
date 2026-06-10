@@ -5,18 +5,13 @@ import { getIssuesListLite } from '@/services/issues.service'
 import type { IssueListLite, IssueWithDetails } from '@/types/issue.types'
 import { IssuesClient } from './IssuesClient'
 
-const SMALL_PROJECT_THRESHOLD = 500
-const PAGE_SIZE = 100
+const PAGE_SIZE = 50
 
 interface Props {
   params: Promise<{ projectId: string }>
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }
 
-/**
- * Hydrate the lite payload into the shape IssuesClient expects, with nulls
- * for fields the list view doesn't display (description, dates, reporter, etc).
- */
 function liteToFull(lite: IssueListLite): IssueWithDetails {
   return {
     ...lite,
@@ -50,10 +45,12 @@ export default async function IssuesListPage({ params, searchParams }: Props) {
     types: parseParam('type'),
     assignees: parseParam('assignee'),
     labels: parseParam('label'),
+    parents: parseParam('parent'),
   }
 
-  const [{ data: probe }, { data: membership }] = await Promise.all([
-    getIssuesListLite(admin, projectId, { limit: SMALL_PROJECT_THRESHOLD, offset: 0, filters: {} }),
+  // Always paginated: fetch first page with the initial filters from the URL.
+  const [{ data: firstPage }, { data: membership }] = await Promise.all([
+    getIssuesListLite(admin, projectId, { limit: PAGE_SIZE, offset: 0, filters: initialFilters }),
     admin
       .from('project_members')
       .select('role')
@@ -62,33 +59,20 @@ export default async function IssuesListPage({ params, searchParams }: Props) {
       .single(),
   ])
 
-  const isSmallProject = !probe?.hasMore
-
-  let initialLiteIssues = probe?.data ?? []
-  let initialHasMore = false
-
-  if (!isSmallProject) {
-    const { data: filtered } = await getIssuesListLite(admin, projectId, {
-      limit: PAGE_SIZE,
-      offset: 0,
-      filters: initialFilters,
-    })
-    initialLiteIssues = filtered?.data ?? []
-    initialHasMore = filtered?.hasMore ?? false
-  }
-
+  const initialIssues = (firstPage?.data ?? []).map(liteToFull)
+  const initialHasMore = firstPage?.hasMore ?? false
+  const initialTotal = firstPage?.total ?? 0
   const canDelete = membership?.role === 'owner' || membership?.role === 'admin'
-  const initialIssues = initialLiteIssues.map(liteToFull)
 
   return (
-    <div className="p-6">
+    <div className="absolute inset-0 p-6 flex flex-col overflow-hidden">
       <IssuesClient
         projectId={projectId}
         currentUserId={user.id}
         canDelete={canDelete}
         issues={initialIssues}
         initialHasMore={initialHasMore}
-        isSmallProject={isSmallProject}
+        initialTotal={initialTotal}
         pageSize={PAGE_SIZE}
         initialFilters={initialFilters}
       />

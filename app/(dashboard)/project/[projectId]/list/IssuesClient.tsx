@@ -2,9 +2,9 @@
 
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import { Plus, Search, Ticket, MessageSquare, GripVertical, Layers, ChevronDown, CircleDot, Zap, Users, Flag, Settings2, MoreHorizontal, ExternalLink, Calendar, Tag } from 'lucide-react'
+import { Plus, Search, Ticket, MessageSquare, GripVertical, Layers, ChevronDown, CircleDot, Zap, Users, Flag, Settings2, MoreHorizontal, ExternalLink, Calendar, Tag, RotateCw } from 'lucide-react'
 import { JiraFilterButton, type FilterFieldDef } from '@/components/issues/JiraFilterButton'
 import { AssigneeAvatars } from '@/components/issues/AssigneeAvatars'
 import {
@@ -45,6 +45,7 @@ import {
   updateIssueAction,
   deleteIssueAction,
   loadIssuesListLiteAction,
+  loadIssueGroupCountsAction,
 } from '../actions'
 import type { IssueListLite } from '@/types/issue.types'
 import type { ProjectLabel as ProjectLabelType } from '@/types/project-settings.types'
@@ -66,6 +67,7 @@ interface ActiveFilters {
   types: string[]
   assignees: string[]
   labels: string[]
+  parents: string[]
 }
 
 interface IssuesClientProps {
@@ -74,13 +76,23 @@ interface IssuesClientProps {
   canDelete: boolean
   issues: IssueWithDetails[]
   initialHasMore: boolean
-  isSmallProject: boolean
+  initialTotal: number
   pageSize: number
   initialFilters: ActiveFilters
 }
 
-export function IssuesClient({ projectId, currentUserId, canDelete, issues, initialHasMore, isSmallProject, pageSize, initialFilters }: IssuesClientProps) {
-  const { sprints, members, epics } = useProjectData()
+export function IssuesClient({ projectId, currentUserId, canDelete, issues, initialHasMore, initialTotal, pageSize, initialFilters }: IssuesClientProps) {
+  const { sprints, members: rawMembers, epics } = useProjectData()
+  const members = useMemo(
+    () => [...rawMembers].sort((a, b) =>
+      (a.profile?.full_name ?? a.user_id).localeCompare(
+        b.profile?.full_name ?? b.user_id,
+        undefined,
+        { sensitivity: 'base' },
+      ),
+    ),
+    [rawMembers],
+  )
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -141,31 +153,26 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
     if (next.assignees.length) params.set('assignee', next.assignees.join(','))
     else params.delete('assignee')
 
+    if (next.labels.length) params.set('label', next.labels.join(','))
+    else params.delete('label')
+
+    if (next.parents.length) params.set('parent', next.parents.join(','))
+    else params.delete('parent')
+
     router.replace(`${pathname}?${params.toString()}`, { scroll: false })
   }, [pathname, router, searchParams])
 
   const hasActiveFilters = filters.statuses.length > 0 || filters.priorities.length > 0 ||
-    filters.types.length > 0 || filters.assignees.length > 0 || filters.labels.length > 0
+    filters.types.length > 0 || filters.assignees.length > 0 || filters.labels.length > 0 || filters.parents.length > 0
 
-  // For small projects the server returns ALL tickets unfiltered — filters
-  // apply in the client (instant). For large projects the server already
-  // applied filters, so only search runs client-side here.
+  // Server already applied filters; only search runs client-side over loaded items.
   const filtered = useMemo(() => {
-    return localIssues.filter((i) => {
-      if (search.trim()) {
-        const q = search.trim().toLowerCase()
-        if (!i.title.toLowerCase().includes(q) && !i.key.toLowerCase().includes(q)) return false
-      }
-      if (isSmallProject) {
-        if (filters.statuses.length && !filters.statuses.includes(i.status)) return false
-        if (filters.priorities.length && !filters.priorities.includes(i.priority)) return false
-        if (filters.types.length && !filters.types.includes(i.type)) return false
-        if (filters.assignees.length > 0 && !filters.assignees.includes(i.assignee_id ?? '__unassigned__')) return false
-        if (filters.labels.length && !filters.labels.some((id) => i.labels?.some((l) => l.id === id))) return false
-      }
-      return true
-    })
-  }, [localIssues, search, filters, isSmallProject])
+    if (!search.trim()) return localIssues
+    const q = search.trim().toLowerCase()
+    return localIssues.filter((i) =>
+      i.title.toLowerCase().includes(q) || i.key.toLowerCase().includes(q)
+    )
+  }, [localIssues, search])
 
   // React Query manages pagination + caching. For small projects the queryKey
   // is constant ('all') so changing filters never triggers a refetch — the
@@ -173,27 +180,19 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
   // For large projects the queryKey includes the filters so each combination
   // is cached separately and revisiting a filter is instant.
   const queryClient = useQueryClient()
-  const filterKey = useMemo(
-    () => (isSmallProject ? 'all' : JSON.stringify(filters)),
-    [filters, isSmallProject]
-  )
+  const filterKey = useMemo(() => JSON.stringify(filters), [filters])
 
   const query = useInfiniteQuery({
     queryKey: ['issues-list', projectId, filterKey] as const,
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
-      // Small projects always fetch unfiltered (server gives everything)
-      const filtersToSend = isSmallProject ? {
-        statuses: [], priorities: [], types: [], assignees: [], labels: [],
-      } : filters
-      const limitToUse = isSmallProject ? 500 : pageSize
-      const { data } = await loadIssuesListLiteAction(projectId, pageParam, filtersToSend, limitToUse)
-      if (!data) return { data: [] as IssueWithDetails[], hasMore: false }
-      return { data: data.data.map(liteToFull), hasMore: data.hasMore }
+      const { data } = await loadIssuesListLiteAction(projectId, pageParam, filters, pageSize)
+      if (!data) return { data: [] as IssueWithDetails[], hasMore: false, total: 0 }
+      return { data: data.data.map(liteToFull), hasMore: data.hasMore, total: data.total }
     },
     getNextPageParam: (lastPage, allPages) =>
       lastPage.hasMore ? allPages.reduce((acc, p) => acc + p.data.length, 0) : undefined,
-    initialData: { pages: [{ data: issues, hasMore: initialHasMore }], pageParams: [0] },
+    initialData: { pages: [{ data: issues, hasMore: initialHasMore, total: initialTotal }], pageParams: [0] },
     // Mark initialData as freshly fetched so React Query doesn't trigger a
     // background refetch on mount (the server-rendered page is already current).
     initialDataUpdatedAt: Date.now(),
@@ -214,14 +213,46 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
   const hasMore = query.hasNextPage
   const loadingMore = query.isFetchingNextPage || query.isFetching
 
-  async function handleShowMore() {
-    if (loadingMore || !hasMore) return
-    await query.fetchNextPage()
-  }
+  // Total tickets matching the current server-side filters.
+  const totalCount = useMemo(() => {
+    const lastPage = query.data?.pages[query.data.pages.length - 1]
+    return lastPage?.total ?? initialTotal
+  }, [query.data, initialTotal])
+
+  // Infinite scroll: when the sentinel comes into view (within the internal
+  // scroll container, not the page), fetch the next page.
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el || !hasMore) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting && !loadingMore) {
+        query.fetchNextPage()
+      }
+    }, { root: scrollContainerRef.current, rootMargin: '300px' })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [hasMore, loadingMore, query])
+
+  // When grouping is active, fetch real per-group totals from the server (the
+  // visible groups would otherwise only count loaded rows, not the full set).
+  const groupCountsQuery = useQuery({
+    queryKey: ['issue-group-counts', projectId, filterKey, listGroupBy] as const,
+    enabled: listGroupBy !== 'none',
+    queryFn: async () => {
+      if (listGroupBy === 'none') return {}
+      const { data } = await loadIssueGroupCountsAction(projectId, filters, listGroupBy)
+      return data ?? {}
+    },
+    staleTime: 30 * 1000,
+  })
+  const groupCounts = groupCountsQuery.data ?? {}
 
   // Invalidate the list query so realtime / mutations trigger a refetch.
   const invalidateList = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['issues-list', projectId] })
+    queryClient.invalidateQueries({ queryKey: ['issue-group-counts', projectId] })
   }, [queryClient, projectId])
 
   // Bridge: when the server component refetches (router.refresh from realtime
@@ -367,6 +398,16 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
           .map((id) => projectLabels.find((l) => l.id === id))
           .filter((l): l is typeof projectLabels[number] => !!l)
       }
+      // Same for epic_id: resolve the nested epic so the Parent cell renders instantly
+      if (patch.epic_id !== undefined) {
+        updated.epic = patch.epic_id ? (epics.find((e) => e.id === patch.epic_id) ?? null) : null
+      }
+      // Same for assignee_id: resolve the nested assignee profile for the Assignee cell
+      if (patch.assignee_id !== undefined) {
+        updated.assignee = patch.assignee_id
+          ? (rawMembers.find((m) => m.user_id === patch.assignee_id)?.profile ?? null)
+          : null
+      }
       return updated
     }))
     const { error } = await updateIssueAction(projectId, issueId, patch)
@@ -374,7 +415,7 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
       toast(error, 'error')
       invalidateList()
     }
-  }, [projectId, toast, invalidateList, projectLabels])
+  }, [projectId, toast, invalidateList, projectLabels, epics, rawMembers])
 
   const handleAddComment = useCallback(async (issueId: string, content: JSONContent) => {
     const contentJson = JSON.stringify(content)
@@ -417,13 +458,13 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
   }
 
   function clearFilters() {
-    applyFilters({ statuses: [], priorities: [], types: [], assignees: [], labels: [] })
+    applyFilters({ statuses: [], priorities: [], types: [], assignees: [], labels: [], parents: [] })
   }
 
   return (
-    <>
+    <div className="flex-1 min-h-0 flex flex-col">
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2 mb-4">
+      <div className="flex flex-wrap items-center gap-2 mb-4 shrink-0">
         {/* Search */}
         <div className="relative min-w-[180px] max-w-xs flex-1">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
@@ -476,13 +517,20 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
                 ...members.map((m) => ({ value: m.user_id, label: m.profile?.full_name ?? m.user_id, avatarUrl: m.profile?.avatar_url ?? null, inactive: (m.profile?.status ?? 'active') !== 'active' })),
               ],
             },
+            ...(epics.length > 0 ? [{
+              id: 'parents', label: 'Parent',
+              options: [
+                { value: '__none__', label: 'No parent' },
+                ...epics.map((ep) => ({ value: ep.id, label: ep.name, color: ep.color })),
+              ],
+            } satisfies FilterFieldDef] : []),
             ...(projectLabels.length > 0 ? [{
               id: 'labels', label: 'Labels',
               options: projectLabels.map((l) => ({ value: l.id, label: l.name, color: l.color })),
             } satisfies FilterFieldDef] : []),
           ]}
           values={filters as unknown as Record<string, string[]>}
-          onChange={(v) => applyFilters({ statuses: v.statuses ?? [], priorities: v.priorities ?? [], types: v.types ?? [], assignees: v.assignees ?? [], labels: v.labels ?? [] })}
+          onChange={(v) => applyFilters({ statuses: v.statuses ?? [], priorities: v.priorities ?? [], types: v.types ?? [], assignees: v.assignees ?? [], labels: v.labels ?? [], parents: v.parents ?? [] })}
         />
 
         {/* Group button */}
@@ -491,7 +539,7 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
 
       {/* Active filter chips */}
       {hasActiveFilters && (
-        <div className="flex flex-wrap gap-1.5 mb-3">
+        <div className="flex flex-wrap gap-1.5 mb-3 shrink-0">
           {filters.statuses.map((s) => (
             <FilterChip key={s} label={formatSettingLabel(s)} onRemove={() =>
               applyFilters({ ...filters, statuses: filters.statuses.filter((x) => x !== s) })} />
@@ -516,10 +564,11 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
 
       {/* Table */}
       {filtered.length > 0 ? (
-        listGroupBy !== 'none' && groupedIssues ? (
+      <div className="w-full min-h-0 max-h-full flex flex-col bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-auto">
+        {listGroupBy !== 'none' && groupedIssues ? (
           <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleGroupedDragEnd}>
-            <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto" style={{ width: 'max-content', maxWidth: '100%' }}>
-              <table className="text-sm whitespace-nowrap" style={{ tableLayout: 'fixed', width: 'max-content' }}>
+              <table className="text-sm whitespace-nowrap" style={{ tableLayout: 'fixed', minWidth: '100%' }}>
                 <thead>
                   <tr className="border-b border-gray-200 bg-gray-50">
                     {colVisible.type && <ResizableTh id="type" label="Type" widths={colWidths} setWidth={setColWidth} />}
@@ -536,7 +585,8 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
                     {colVisible.created && <ResizableTh id="created" label="Created" widths={colWidths} setWidth={setColWidth} />}
                     {colVisible.updated && <ResizableTh id="updated" label="Updated" widths={colWidths} setWidth={setColWidth} />}
                     {colVisible.reporter && <ResizableTh id="reporter" label="Reporter" widths={colWidths} setWidth={setColWidth} />}
-                    <th style={{ width: 56, minWidth: 56, maxWidth: 56 }} className="sticky right-0 z-10 bg-gray-50 border-l border-gray-200 px-2 py-2.5">
+                    <th className="sticky top-0 z-20 bg-gray-50" />
+                    <th style={{ width: 56, minWidth: 56, maxWidth: 56 }} className="sticky right-0 top-0 z-30 bg-gray-50 border-l border-gray-200 px-2 py-2.5">
                       <ColumnsConfigButton visible={colVisible} onToggle={toggleColumn} />
                     </th>
                   </tr>
@@ -548,7 +598,7 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
                       <SortableContext key={group.key} items={group.issues.map((i) => i.id)} strategy={verticalListSortingStrategy}>
                         <>
                           <tr className="bg-gray-50 border-y border-gray-100">
-                            <td colSpan={15} className="px-3 py-2">
+                            <td colSpan={16} className="px-3 py-2">
                               <div className="flex items-center gap-2">
                                 <button
                                   type="button"
@@ -564,6 +614,12 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
                                 </button>
                                 <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
                                   {group.label}
+                                </span>
+                                <span className="text-xs font-medium text-gray-400">
+                                  {(() => {
+                                    const total = groupCounts[group.key] ?? group.issues.length
+                                    return `${total} ${total === 1 ? 'ticket' : 'tickets'}`
+                                  })()}
                                 </span>
                                 <button
                                   type="button"
@@ -598,7 +654,6 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
                   })}
                 </tbody>
               </table>
-            </div>
             <DragOverlay dropAnimation={null}>
               {activeIssue && (
                 <div className="bg-white border border-blue-300 rounded-lg shadow-xl px-4 py-2 text-sm font-medium text-gray-800 opacity-95">
@@ -610,8 +665,7 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
         ) : (
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <SortableContext items={filtered.map((i) => i.id)} strategy={verticalListSortingStrategy}>
-            <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto" style={{ width: 'max-content', maxWidth: '100%' }}>
-              <table className="text-sm whitespace-nowrap" style={{ tableLayout: 'fixed', width: 'max-content' }}>
+              <table className="text-sm whitespace-nowrap" style={{ tableLayout: 'fixed', minWidth: '100%' }}>
                 <thead>
                   <tr className="border-b border-gray-200 bg-gray-50">
                     {colVisible.type && <ResizableTh id="type" label="Type" widths={colWidths} setWidth={setColWidth} />}
@@ -628,7 +682,8 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
                     {colVisible.created && <ResizableTh id="created" label="Created" widths={colWidths} setWidth={setColWidth} />}
                     {colVisible.updated && <ResizableTh id="updated" label="Updated" widths={colWidths} setWidth={setColWidth} />}
                     {colVisible.reporter && <ResizableTh id="reporter" label="Reporter" widths={colWidths} setWidth={setColWidth} />}
-                    <th style={{ width: 56, minWidth: 56, maxWidth: 56 }} className="sticky right-0 z-10 bg-gray-50 border-l border-gray-200 px-2 py-2.5">
+                    <th className="sticky top-0 z-20 bg-gray-50" />
+                    <th style={{ width: 56, minWidth: 56, maxWidth: 56 }} className="sticky right-0 top-0 z-30 bg-gray-50 border-l border-gray-200 px-2 py-2.5">
                       <ColumnsConfigButton visible={colVisible} onToggle={toggleColumn} />
                     </th>
                   </tr>
@@ -652,7 +707,6 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
                   ))}
                 </tbody>
               </table>
-            </div>
           </SortableContext>
           <DragOverlay dropAnimation={null}>
             {activeIssue && (
@@ -662,7 +716,40 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
             )}
           </DragOverlay>
         </DndContext>
-        )
+        )}
+
+        {/* Infinite scroll sentinel + loading indicator */}
+        {hasMore && (
+          <div ref={sentinelRef} className="h-1" />
+        )}
+        {loadingMore && (
+          <div className="flex justify-center py-2 text-xs text-gray-400 border-t border-gray-100">Loading more...</div>
+        )}
+        </div>
+
+        {/* Footer: Create on the left, count + refresh centered — pinned outside the scroll */}
+        <div className="grid grid-cols-3 items-center px-4 py-2 bg-white border-t border-gray-200 text-xs shrink-0">
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="flex items-center gap-1 text-gray-600 hover:text-blue-600 transition-colors justify-self-start"
+          >
+            <Plus size={14} /> Create
+          </button>
+          <div className="flex items-center gap-2 text-gray-500 justify-self-center">
+            <span>{filtered.length} of {totalCount}</span>
+            <button
+              type="button"
+              onClick={() => query.refetch()}
+              className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+              title="Refresh"
+            >
+              <RotateCw size={12} className={cn(loadingMore && 'animate-spin')} />
+            </button>
+          </div>
+          <div />
+        </div>
+      </div>
       ) : issues.length === 0 ? (
         <EmptyState
           icon={<Ticket size={48} />}
@@ -681,15 +768,6 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
           title="No results"
           description="No tickets match the current filters."
         />
-      )}
-
-      {/* Show more */}
-      {localIssues.length > 0 && hasMore && (
-        <div className="flex justify-center mt-6">
-          <Button onClick={handleShowMore} loading={loadingMore} variant="secondary">
-            {loadingMore ? 'Loading...' : `Show ${pageSize} more`}
-          </Button>
-        </div>
       )}
 
       {/* Modal: ticket detail */}
@@ -738,7 +816,7 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
         description={`Are you sure you want to delete "${deleteTarget?.title}"? This cannot be undone.`}
         confirmLabel="Yes, delete"
       />
-    </>
+    </div>
   )
 }
 
@@ -942,6 +1020,7 @@ function SortableIssueRow({
       {colVisible.reporter && (
         <td className="px-4 py-3 border-r border-gray-100"><UserCell person={issue.reporter} fallback="Unknown" /></td>
       )}
+      <td />
       <td
         className="sticky right-0 z-10 bg-white group-hover:bg-gray-50 border-l border-gray-100 px-2 py-3 transition-colors"
         onClick={(e) => e.stopPropagation()}
@@ -1087,7 +1166,7 @@ function ResizableTh({
     <th
       style={{ width, minWidth: width, maxWidth: width }}
       className={cn(
-        'relative text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide',
+        'sticky top-0 z-20 bg-gray-50 text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide',
         !last && 'border-r border-gray-200'
       )}
     >

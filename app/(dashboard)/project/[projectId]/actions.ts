@@ -11,10 +11,12 @@ import {
   deleteIssue as deleteIssueService,
   getIssuesPaginated,
   getIssuesListLite,
+  getIssueGroupCounts,
   type IssuesPageFilters,
   type IssuesPageResult,
   type IssuesListLiteFilters,
   type IssuesListLiteResult,
+  type IssueGroupBy,
 } from '@/services/issues.service'
 import { setIssueLabels } from '@/services/project-labels.service'
 import type { IssueCreate, IssueUpdate, Issue } from '@/types/issue.types'
@@ -369,5 +371,15 @@ export async function loadIssuesListLiteAction(
   await getAuthenticatedUser()
   const supabase = createAdminClient()
   return getIssuesListLite(supabase, projectId, { limit, offset, filters })
+}
+
+export async function loadIssueGroupCountsAction(
+  projectId: string,
+  filters: IssuesListLiteFilters,
+  groupBy: IssueGroupBy,
+): Promise<ServiceResult<Record<string, number>>> {
+  await getAuthenticatedUser()
+  const supabase = createAdminClient()
+  return getIssueGroupCounts(supabase, projectId, { filters, groupBy })
 }
 
