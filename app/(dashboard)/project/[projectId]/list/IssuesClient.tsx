@@ -406,6 +406,19 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
 
   // Optimistic inline edit for a single field. Called by each EditableCell.
   const handleInlineUpdate = useCallback(async (issueId: string, patch: IssueUpdate) => {
+    // Status validation: if the target status requires a pause reason and the
+    // ticket doesn't have one yet, block the change (same rule the drag flow
+    // uses). The user has to open the ticket and set pause_reason first.
+    if (patch.status) {
+      const targetStatus = projectStatuses.find((s) => s.name === patch.status)
+      if (targetStatus?.requires_pause_reason) {
+        const target = localIssues.find((i) => i.id === issueId)
+        if (!target?.pause_reason?.trim()) {
+          toast('Open the ticket and fill in Pause reason before moving to this status.', 'error')
+          return
+        }
+      }
+    }
     setLocalIssues((prev) => prev.map((i) => {
       if (i.id !== issueId) return i
       const updated: IssueWithDetails = { ...i, ...patch } as IssueWithDetails
@@ -432,7 +445,7 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
       toast(error, 'error')
       invalidateList()
     }
-  }, [projectId, toast, invalidateList, projectLabels, epics, rawMembers])
+  }, [projectId, toast, invalidateList, projectLabels, epics, rawMembers, projectStatuses, localIssues])
 
   const handleAddComment = useCallback(async (issueId: string, content: JSONContent) => {
     const contentJson = JSON.stringify(content)

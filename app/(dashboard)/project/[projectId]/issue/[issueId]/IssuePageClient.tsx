@@ -13,6 +13,7 @@ import { updateIssueAction, deleteIssueAction } from '../../actions'
 import type { IssueWithDetails, IssueUpdate } from '@/types/issue.types'
 import type { ProjectMemberPreview } from '@/services/projects.service'
 import type { Sprint } from '@/types/sprint.types'
+import type { Epic } from '@/types/epic.types'
 
 interface Props {
   issue: IssueWithDetails
@@ -21,9 +22,10 @@ interface Props {
   canDelete?: boolean
   sprints: Sprint[]
   members: ProjectMemberPreview[]
+  epics: Epic[]
 }
 
-export function IssuePageClient({ issue: initialIssue, projectId, currentUserId, canDelete = false, sprints, members }: Props) {
+export function IssuePageClient({ issue: initialIssue, projectId, currentUserId, canDelete = false, sprints, members, epics }: Props) {
   const router = useRouter()
   const { toast } = useToast()
 
@@ -97,6 +99,7 @@ export function IssuePageClient({ issue: initialIssue, projectId, currentUserId,
           canDelete={canDelete}
           members={members}
           sprints={sprints}
+          epics={epics}
           onEdit={() => setEditOpen(true)}
           onDelete={() => setDeleteOpen(true)}
           onUpdated={(patch) => {
@@ -113,6 +116,7 @@ export function IssuePageClient({ issue: initialIssue, projectId, currentUserId,
           issue={issue}
           members={members}
           sprints={sprints}
+          epics={epics}
           onSubmit={handleEdit}
           onCancel={() => setEditOpen(false)}
         />

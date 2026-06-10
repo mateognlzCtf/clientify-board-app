@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import {
@@ -11,7 +11,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import {
   Plus, ChevronDown, ChevronRight, Play, CheckSquare,
-  Pencil, Trash2, Flag, Calendar, MoreHorizontal, GripVertical, Search, Link2,
+  Pencil, Trash2, Flag, Calendar, MoreHorizontal, GripVertical, Search, Link2, ExternalLink,
 } from 'lucide-react'
 import { JiraFilterButton, type FilterFieldDef } from '@/components/issues/JiraFilterButton'
 import { AssigneeAvatars } from '@/components/issues/AssigneeAvatars'
@@ -19,7 +19,6 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { IssueForm } from '@/components/issues/IssueForm'
-import { IssueDetail } from '@/components/issues/IssueDetail'
 import { StatusBadge } from '@/components/issues/StatusBadge'
 import { PriorityIcon, ALL_PRIORITIES, priorityLabel } from '@/components/issues/PriorityIcon'
 import { TypeIcon } from '@/components/issues/TypeIcon'
@@ -52,9 +51,20 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues }: P
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { toast } = useToast()
-  const { sprints: initialSprints, members, epics: initialEpics } = useProjectData()
+  const { sprints: initialSprints, members: rawMembers, epics: initialEpics } = useProjectData()
+  // Sort members alphabetically so all assignee dropdowns are consistent.
+  const members = useMemo(
+    () => [...rawMembers].sort((a, b) =>
+      (a.profile?.full_name ?? a.user_id).localeCompare(
+        b.profile?.full_name ?? b.user_id,
+        undefined,
+        { sensitivity: 'base' },
+      ),
+    ),
+    [rawMembers],
+  )
   const { statuses: projectStatuses, types: projectTypes, labels: projectLabels } = useProjectSettings()
-  useRefreshOnFocus(() => setDetailTarget(null))
+  useRefreshOnFocus(() => {})
   useRealtimeRefresh(projectId)
 
   const [sprints, setSprints] = useState<Sprint[]>(initialSprints)
@@ -64,12 +74,50 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues }: P
   // Sync when server re-fetches after router.refresh()
   useEffect(() => { setSprints(initialSprints) }, [initialSprints])
   useEffect(() => { setAllIssues(issues) }, [issues])
-  useEffect(() => {
-    if (!detailTarget) return
-    const fresh = issues.find((i) => i.id === detailTarget.id)
-    if (fresh) setDetailTarget(fresh)
-  }, [issues])
   const [draggingIssue, setDraggingIssue] = useState<IssueWithDetails | null>(null)
+
+  // Inline editing from rows: optimistic local update + server persist.
+  // Resolves nested objects (assignee, epic, labels) from settings so the
+  // row re-renders instantly with the new values, exactly like List does.
+  const handleInlineUpdate = useCallback(async (issueId: string, patch: IssueUpdate) => {
+    // Status validation: if the target status requires a pause reason and the
+    // ticket doesn't have one yet, block the change. User has to open the
+    // ticket and set the pause reason first (same rule the drag flow uses).
+    if (patch.status) {
+      const targetStatus = projectStatuses.find((s) => s.name === patch.status)
+      if (targetStatus?.requires_pause_reason) {
+        const target = allIssues.find((i) => i.id === issueId)
+        if (!target?.pause_reason?.trim()) {
+          toast('Open the ticket and fill in Pause reason before moving to this status.', 'error')
+          return
+        }
+      }
+    }
+    setAllIssues((prev) => prev.map((i) => {
+      if (i.id !== issueId) return i
+      const updated: IssueWithDetails = { ...i, ...patch } as IssueWithDetails
+      if (patch.label_ids !== undefined) {
+        updated.labels = patch.label_ids
+          .map((id) => projectLabels.find((l) => l.id === id))
+          .filter((l): l is typeof projectLabels[number] => !!l)
+      }
+      if (patch.epic_id !== undefined) {
+        updated.epic = patch.epic_id ? (epics.find((e) => e.id === patch.epic_id) ?? null) : null
+      }
+      if (patch.assignee_id !== undefined) {
+        updated.assignee = patch.assignee_id
+          ? (rawMembers.find((m) => m.user_id === patch.assignee_id)?.profile ?? null)
+          : null
+      }
+      return updated
+    }))
+    const { error } = await updateIssueAction(projectId, issueId, patch)
+    if (error) toast(error, 'error')
+  }, [projectId, projectLabels, epics, rawMembers, toast, projectStatuses, allIssues])
+
+  const handleIssueClick = useCallback((issue: IssueWithDetails) => {
+    router.push(`/project/${projectId}/issue/${issue.id}`)
+  }, [router, projectId])
 
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -118,7 +166,6 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues }: P
 
   // Issue modals
   const [createIssueSprintId, setCreateIssueSprintId] = useState<string | null | undefined>(undefined)
-  const [detailTarget, setDetailTarget] = useState<IssueWithDetails | null>(null)
   const [editIssueTarget, setEditIssueTarget] = useState<IssueWithDetails | null>(null)
   const [deleteIssueTarget, setDeleteIssueTarget] = useState<IssueWithDetails | null>(null)
   const [deleteIssueLoading, setDeleteIssueLoading] = useState(false)
@@ -327,7 +374,6 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues }: P
     if (error) { toast(error, 'error'); return }
     setAllIssues((prev) => prev.filter((i) => i.id !== deleteIssueTarget.id))
     setDeleteIssueTarget(null)
-    setDetailTarget(null)
     toast('Ticket deleted.', 'success')
   }
 
@@ -396,9 +442,9 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues }: P
                 options: projectTypes.map((t) => ({ value: t.name, label: formatSettingLabel(t.name) })),
               },
               {
-                id: 'epics', label: 'Epic',
+                id: 'epics', label: 'Parent',
                 options: [
-                  { value: '__none__', label: 'No epic' },
+                  { value: '__none__', label: 'No parent' },
                   ...epics.map((ep) => ({ value: ep.id, label: ep.name })),
                 ],
               },
@@ -421,8 +467,13 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues }: P
             onEdit={() => setEditSprint(activeSprint)}
             onComplete={() => setCompleteSprintTarget(activeSprint)}
             onAddIssue={() => setCreateIssueSprintId(activeSprint.id)}
-            onIssueClick={setDetailTarget}
+            onIssueClick={handleIssueClick}
             onMoveIssue={handleMoveIssue}
+            onInlineUpdate={handleInlineUpdate}
+            members={members}
+            epics={epics}
+            projectTypes={projectTypes}
+            projectLabels={projectLabels}
             defaultOpen
           />
         )}
@@ -438,8 +489,13 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues }: P
             onDelete={() => setDeleteSprintTarget(sprint)}
             onStart={() => setStartSprintTarget(sprint)}
             onAddIssue={() => setCreateIssueSprintId(sprint.id)}
-            onIssueClick={setDetailTarget}
+            onIssueClick={handleIssueClick}
             onMoveIssue={handleMoveIssue}
+            onInlineUpdate={handleInlineUpdate}
+            members={members}
+            epics={epics}
+            projectTypes={projectTypes}
+            projectLabels={projectLabels}
             defaultOpen
           />
         ))}
@@ -450,8 +506,13 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues }: P
           sprints={planningSprints}
           onCreateSprint={() => setSprintFormOpen(true)}
           onAddIssue={() => setCreateIssueSprintId(null)}
-          onIssueClick={setDetailTarget}
+          onIssueClick={handleIssueClick}
           onMoveIssue={handleMoveIssue}
+          onInlineUpdate={handleInlineUpdate}
+          members={members}
+          epics={epics}
+          projectTypes={projectTypes}
+          projectLabels={projectLabels}
         />
 
         {/* ── Modals ── */}
@@ -515,29 +576,6 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues }: P
           />
         </Modal>
 
-        <Modal open={detailTarget !== null} onClose={() => setDetailTarget(null)} title={detailTarget?.key ?? ''} size="2xl" externalHref={detailTarget ? `/project/${projectId}/issue/${detailTarget.id}` : undefined}>
-          {detailTarget && (
-            <IssueDetail
-              issue={detailTarget}
-              currentUserId={currentUserId}
-              projectId={projectId}
-              members={members}
-              sprints={sprints}
-              epics={epics}
-              canDelete={canDelete}
-              onEdit={() => { setDetailTarget(null); setEditIssueTarget(detailTarget) }}
-              onDelete={() => { setDetailTarget(null); setDeleteIssueTarget(detailTarget) }}
-              onUpdated={(patch) => {
-                const resolved = patch.label_ids !== undefined
-                  ? { ...patch, labels: projectLabels.filter((l) => patch.label_ids!.includes(l.id)) }
-                  : patch
-                setDetailTarget((prev) => prev ? { ...prev, ...resolved } : prev)
-                setAllIssues((prev) => prev.map((i) => i.id === detailTarget.id ? { ...i, ...resolved } : i))
-              }}
-            />
-          )}
-        </Modal>
-
         <Modal open={editIssueTarget !== null} onClose={() => setEditIssueTarget(null)} title="Edit ticket" size="xl">
           {editIssueTarget && (
             <IssueForm mode="edit" issue={editIssueTarget} members={members} sprints={sprints} epics={epics} onSubmit={handleEditIssue} onCancel={() => setEditIssueTarget(null)} />
@@ -568,6 +606,7 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues }: P
 function SprintSection({
   sprint, issues, allSprints,
   onEdit, onDelete, onStart, onComplete, onAddIssue, onIssueClick, onMoveIssue,
+  onInlineUpdate, members, epics, projectTypes, projectLabels,
   defaultOpen = false,
 }: {
   sprint: Sprint
@@ -580,6 +619,11 @@ function SprintSection({
   onAddIssue: () => void
   onIssueClick: (i: IssueWithDetails) => void
   onMoveIssue: (i: IssueWithDetails, sprintId: string | null) => void
+  onInlineUpdate: (issueId: string, patch: IssueUpdate) => void
+  members: ProjectMemberPreview[]
+  epics: Epic[]
+  projectTypes: import('@/types/project-settings.types').ProjectIssueType[]
+  projectLabels: import('@/types/project-settings.types').ProjectLabel[]
   defaultOpen?: boolean
 }) {
   const [open, setOpen] = useState(defaultOpen)
@@ -669,18 +713,18 @@ function SprintSection({
               Drop here
             </div>
           )}
-          <div className="divide-y divide-gray-50">
-            {issues.map((issue) => (
-              <DraggableIssueRow
-                key={issue.id}
-                issue={issue}
-                sprints={allSprints}
-                currentSprintId={sprint.id}
-                onIssueClick={onIssueClick}
-                onMoveIssue={onMoveIssue}
-              />
-            ))}
-          </div>
+          <LazyIssueList
+            issues={issues}
+            sprints={allSprints}
+            currentSprintId={sprint.id}
+            onIssueClick={onIssueClick}
+            onMoveIssue={onMoveIssue}
+            onInlineUpdate={onInlineUpdate}
+            members={members}
+            epics={epics}
+            projectTypes={projectTypes}
+            projectLabels={projectLabels}
+          />
           <div className="px-4 py-2 border-t border-gray-50">
             <button
               onClick={onAddIssue}
@@ -700,6 +744,7 @@ function SprintSection({
 
 function BacklogSection({
   issues, sprints, onCreateSprint, onAddIssue, onIssueClick, onMoveIssue,
+  onInlineUpdate, members, epics, projectTypes, projectLabels,
 }: {
   issues: IssueWithDetails[]
   sprints: Sprint[]
@@ -707,6 +752,11 @@ function BacklogSection({
   onAddIssue: () => void
   onIssueClick: (i: IssueWithDetails) => void
   onMoveIssue: (i: IssueWithDetails, sprintId: string | null) => void
+  onInlineUpdate: (issueId: string, patch: IssueUpdate) => void
+  members: ProjectMemberPreview[]
+  epics: Epic[]
+  projectTypes: import('@/types/project-settings.types').ProjectIssueType[]
+  projectLabels: import('@/types/project-settings.types').ProjectLabel[]
 }) {
   const [open, setOpen] = useState(true)
   const { setNodeRef, isOver } = useDroppable({ id: 'backlog' })
@@ -737,18 +787,18 @@ function BacklogSection({
           {isOver && issues.length === 0 && (
             <div className="flex items-center justify-center py-4 text-xs text-blue-500">Drop here</div>
           )}
-          <div className="divide-y divide-gray-50">
-            {issues.map((issue) => (
-              <DraggableIssueRow
-                key={issue.id}
-                issue={issue}
-                sprints={sprints}
-                currentSprintId={null}
-                onIssueClick={onIssueClick}
-                onMoveIssue={onMoveIssue}
-              />
-            ))}
-          </div>
+          <LazyIssueList
+            issues={issues}
+            sprints={sprints}
+            currentSprintId={null}
+            onIssueClick={onIssueClick}
+            onMoveIssue={onMoveIssue}
+            onInlineUpdate={onInlineUpdate}
+            members={members}
+            epics={epics}
+            projectTypes={projectTypes}
+            projectLabels={projectLabels}
+          />
           <div className="px-4 py-2 border-t border-gray-50">
             <button
               onClick={onAddIssue}
@@ -764,20 +814,92 @@ function BacklogSection({
   )
 }
 
+// ── LazyIssueList: renders first 50 rows + sentinel for incremental load ────
+
+function LazyIssueList({
+  issues, sprints, currentSprintId, onIssueClick, onMoveIssue,
+  onInlineUpdate, members, epics, projectTypes, projectLabels,
+}: {
+  issues: IssueWithDetails[]
+  sprints: Sprint[]
+  currentSprintId: string | null
+  onIssueClick: (i: IssueWithDetails) => void
+  onMoveIssue: (i: IssueWithDetails, sprintId: string | null) => void
+  onInlineUpdate: (issueId: string, patch: IssueUpdate) => void
+  members: ProjectMemberPreview[]
+  epics: Epic[]
+  projectTypes: import('@/types/project-settings.types').ProjectIssueType[]
+  projectLabels: import('@/types/project-settings.types').ProjectLabel[]
+}) {
+  const PAGE = 50
+  const [visibleCount, setVisibleCount] = useState(PAGE)
+  useEffect(() => { setVisibleCount(PAGE) }, [issues.length])
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el || visibleCount >= issues.length) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        setVisibleCount((c) => Math.min(c + PAGE, issues.length))
+      }
+    }, { rootMargin: '200px' })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [visibleCount, issues.length])
+
+  const visibleIssues = visibleCount >= issues.length ? issues : issues.slice(0, visibleCount)
+
+  return (
+    <>
+      <div className="divide-y divide-gray-50">
+        {visibleIssues.map((issue) => (
+          <DraggableIssueRow
+            key={issue.id}
+            issue={issue}
+            sprints={sprints}
+            currentSprintId={currentSprintId}
+            onIssueClick={onIssueClick}
+            onMoveIssue={onMoveIssue}
+            onInlineUpdate={onInlineUpdate}
+            members={members}
+            epics={epics}
+            projectTypes={projectTypes}
+            projectLabels={projectLabels}
+          />
+        ))}
+      </div>
+      {visibleCount < issues.length && <div ref={sentinelRef} className="h-1" />}
+    </>
+  )
+}
+
 // ── DraggableIssueRow ─────────────────────────────────────────────────────────
 
 function DraggableIssueRow({
   issue, sprints, currentSprintId, onIssueClick, onMoveIssue,
+  onInlineUpdate, members, epics, projectTypes, projectLabels,
 }: {
   issue: IssueWithDetails
   sprints: Sprint[]
   currentSprintId: string | null
   onIssueClick: (i: IssueWithDetails) => void
   onMoveIssue: (i: IssueWithDetails, sprintId: string | null) => void
+  onInlineUpdate: (issueId: string, patch: IssueUpdate) => void
+  members: ProjectMemberPreview[]
+  epics: Epic[]
+  projectTypes: import('@/types/project-settings.types').ProjectIssueType[]
+  projectLabels: import('@/types/project-settings.types').ProjectLabel[]
 }) {
   const { statuses: projectStatuses } = useProjectSettings()
   const { toast } = useToast()
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: issue.id })
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState(issue.title)
+  useEffect(() => { setTitleDraft(issue.title) }, [issue.title])
+  // Disable drag while editing title so the row doesn't drift away.
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: issue.id,
+    disabled: editingTitle,
+  })
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPos, setMenuPos] = useState<{ top?: number; bottom?: number; right: number }>({ right: 0 })
   const menuBtnRef = useRef<HTMLButtonElement>(null)
@@ -809,17 +931,22 @@ function DraggableIssueRow({
     }
   }
 
-  const MAX_VISIBLE_LABELS = 2
-  const visibleLabels = issue.labels?.slice(0, MAX_VISIBLE_LABELS) ?? []
-  const hiddenLabels = issue.labels?.slice(MAX_VISIBLE_LABELS) ?? []
+  function commitTitle() {
+    const next = titleDraft.trim()
+    if (next && next !== issue.title) onInlineUpdate(issue.id, { title: next })
+    else setTitleDraft(issue.title)
+    setEditingTitle(false)
+  }
+
+  // Stop card-level click + drag listeners from firing on inline editor clicks.
+  const stop = (e: React.SyntheticEvent) => { e.stopPropagation() }
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      onClick={() => onIssueClick(issue)}
       className={cn(
-        'group flex items-center gap-3 px-4 py-2 hover:bg-gray-50 transition-colors cursor-pointer',
+        'group flex items-center gap-3 px-4 py-2 hover:bg-gray-50 transition-colors',
         isDragging && 'opacity-40 bg-blue-50'
       )}
     >
@@ -834,78 +961,140 @@ function DraggableIssueRow({
         <GripVertical size={14} />
       </button>
 
-      <TypeIcon type={issue.type} />
-      <span className="font-mono text-[11px] text-gray-400 w-16 shrink-0">{issue.key}</span>
-      <span className="flex-1 text-left text-sm text-gray-800 font-medium truncate">
-        {issue.title}
-      </span>
+      {/* Type — inline editable */}
+      <div
+        className="relative inline-block cursor-pointer hover:bg-gray-100 rounded p-0.5 -m-0.5"
+        onClick={stop}
+        onPointerDown={stop}
+        title="Change type"
+      >
+        <TypeIcon type={issue.type} />
+        <select
+          value={issue.type}
+          onChange={(e) => onInlineUpdate(issue.id, { type: e.target.value as IssueWithDetails['type'] })}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+        >
+          {projectTypes.map((t) => (
+            <option key={t.id} value={t.name}>{t.name}</option>
+          ))}
+        </select>
+      </div>
 
-      {/* Epic + labels — variable width, sit between title and fixed meta columns */}
+      <span className="font-mono text-[11px] text-gray-400 w-16 shrink-0">{issue.key}</span>
+
+      {/* Title — click to edit inline (same UX as List) */}
+      {editingTitle ? (
+        <input
+          autoFocus
+          value={titleDraft}
+          onChange={(e) => setTitleDraft(e.target.value)}
+          onBlur={commitTitle}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur()
+            else if (e.key === 'Escape') { setTitleDraft(issue.title); setEditingTitle(false) }
+          }}
+          onClick={stop}
+          onPointerDown={stop}
+          className="flex-1 min-w-0 text-sm text-gray-800 font-medium border border-blue-400 rounded px-1 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-200"
+        />
+      ) : (
+        <span
+          onClick={(e) => { stop(e); setEditingTitle(true) }}
+          onPointerDown={stop}
+          className="flex-1 text-left text-sm text-gray-800 font-medium truncate cursor-text hover:bg-gray-100 rounded px-1 -mx-1"
+        >
+          {issue.title}
+        </span>
+      )}
+
+      {/* Epic chip — inline editable when assigned */}
       <div className="hidden sm:flex items-center gap-1 shrink-0 overflow-hidden max-w-[240px]">
         {issue.epic && (
-          <span
-            className="text-[10px] font-semibold px-2 py-0.5 rounded-full truncate max-w-[120px]"
-            style={{ backgroundColor: issue.epic.color + '22', color: issue.epic.color }}
-            title={issue.epic.name}
-          >
-            {issue.epic.name}
-          </span>
+          <div className="relative inline-flex items-center cursor-pointer" onClick={stop} onPointerDown={stop} title="Change parent">
+            <span
+              className="text-[10px] font-semibold px-2 py-0.5 rounded-full truncate max-w-[120px]"
+              style={{ backgroundColor: issue.epic.color + '22', color: issue.epic.color }}
+            >
+              {issue.epic.name}
+            </span>
+            <select
+              value={issue.epic_id ?? ''}
+              onChange={(e) => onInlineUpdate(issue.id, { epic_id: e.target.value || null })}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            >
+              <option value="">No parent</option>
+              {epics.map((ep) => (
+                <option key={ep.id} value={ep.id}>{ep.name}</option>
+              ))}
+            </select>
+          </div>
         )}
-        {visibleLabels.map((label) => (
-          <span
-            key={label.id}
-            className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 hidden md:inline-flex truncate max-w-[100px]"
-            style={{ backgroundColor: label.color + '22', color: label.color }}
-            title={label.name}
-          >
-            {label.name}
-          </span>
-        ))}
-        {hiddenLabels.length > 0 && (
-          <span
-            className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 hidden md:inline-flex bg-gray-100 text-gray-600"
-            title={hiddenLabels.map((l) => l.name).join(', ')}
-          >
-            +{hiddenLabels.length}
-          </span>
+        {issue.labels && issue.labels.length > 0 && (
+          <BacklogLabelsSelect issue={issue} allLabels={projectLabels} onUpdate={(p) => onInlineUpdate(issue.id, p)} />
         )}
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
-        {/* Due date — fixed slot */}
-        <div className="w-24 flex justify-end shrink-0">
-          {issue.due_date && (
-            <span className={cn(
-              'text-[11px] font-medium flex items-center gap-1',
-              issue.due_date < new Date().toISOString().slice(0, 10) && !projectStatuses.find(s => s.name === issue.status)?.is_completed ? 'text-red-500' : 'text-gray-400'
-            )}>
-              <Calendar size={11} />
-              {formatDate(issue.due_date)}
-            </span>
-          )}
+        {/* Due date — click to edit (uses input[type=date].showPicker on click) */}
+        <div className="w-24 flex justify-end shrink-0" onClick={stop} onPointerDown={stop}>
+          <BacklogDueDate issue={issue} onUpdate={(p) => onInlineUpdate(issue.id, p)} />
         </div>
 
-        {/* Status — fixed slot */}
+        {/* Status — inline editable */}
         <div className="w-24 flex justify-end shrink-0">
-          <StatusBadge status={issue.status} color={projectStatuses.find(s => s.name === issue.status)?.color ?? undefined} />
+          <div className="relative inline-block cursor-pointer" onClick={stop} onPointerDown={stop} title="Change status">
+            <StatusBadge status={issue.status} color={projectStatuses.find(s => s.name === issue.status)?.color ?? undefined} />
+            <select
+              value={issue.status}
+              onChange={(e) => onInlineUpdate(issue.id, { status: e.target.value as IssueWithDetails['status'] })}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            >
+              {projectStatuses.map((s) => (
+                <option key={s.id} value={s.name}>{formatSettingLabel(s.name)}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        {/* Priority — fixed slot */}
+        {/* Priority — inline editable */}
         <div className="w-5 flex justify-center shrink-0">
-          <PriorityIcon priority={issue.priority} />
+          <div className="relative inline-block cursor-pointer" onClick={stop} onPointerDown={stop} title="Change priority">
+            <PriorityIcon priority={issue.priority} />
+            <select
+              value={issue.priority}
+              onChange={(e) => onInlineUpdate(issue.id, { priority: e.target.value as IssueWithDetails['priority'] })}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            >
+              {ALL_PRIORITIES.map((p) => (
+                <option key={p} value={p}>{priorityLabel(p)}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        {/* Assignee — fixed slot (reserves space even when unassigned) */}
+        {/* Assignee — inline editable when assigned (alphabetical) */}
         <div className="w-5 flex justify-center shrink-0">
           {issue.assignee && (
-            <div className={`h-5 w-5 rounded-full flex items-center justify-center ${issue.assignee.status !== 'active' ? 'bg-gray-400' : 'bg-blue-500'}`} title={`${issue.assignee.full_name ?? ''}${issue.assignee.status !== 'active' ? ' (Inactive)' : ''}`}>
-              {issue.assignee.avatar_url ? (
-                <img src={issue.assignee.avatar_url} className={`h-5 w-5 rounded-full object-cover ${issue.assignee.status !== 'active' ? 'grayscale opacity-60' : ''}`} alt="" />
-              ) : (
-                <span className="text-[8px] font-bold text-white">
-                  {issue.assignee.full_name?.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase()}
-                </span>
-              )}
+            <div className="relative inline-block cursor-pointer" onClick={stop} onPointerDown={stop} title={issue.assignee.full_name ?? 'Change assignee'}>
+              <div className={`h-5 w-5 rounded-full flex items-center justify-center ${issue.assignee.status !== 'active' ? 'bg-gray-400' : 'bg-blue-500'}`}>
+                {issue.assignee.avatar_url ? (
+                  <img src={issue.assignee.avatar_url} className={`h-5 w-5 rounded-full object-cover ${issue.assignee.status !== 'active' ? 'grayscale opacity-60' : ''}`} alt="" />
+                ) : (
+                  <span className="text-[8px] font-bold text-white">
+                    {issue.assignee.full_name?.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase()}
+                  </span>
+                )}
+              </div>
+              <select
+                value={issue.assignee_id ?? ''}
+                onChange={(e) => onInlineUpdate(issue.id, { assignee_id: e.target.value || null })}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              >
+                <option value="">Unassigned</option>
+                {members.map((m) => (
+                  <option key={m.user_id} value={m.user_id}>{m.profile?.full_name ?? m.user_id}</option>
+                ))}
+              </select>
             </div>
           )}
         </div>
@@ -927,6 +1116,13 @@ function DraggableIssueRow({
                 className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]"
                 style={{ top: menuPos.top, bottom: menuPos.bottom, right: menuPos.right }}
               >
+                <button
+                  onClick={() => { setMenuOpen(false); onIssueClick(issue) }}
+                  className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                >
+                  <ExternalLink size={12} />
+                  View work item
+                </button>
                 <button
                   onClick={handleCopyLink}
                   className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2"
@@ -962,6 +1158,161 @@ function DraggableIssueRow({
         </div>
       </div>
     </div>
+  )
+}
+
+// ── BacklogDueDate: inline date editor (native picker, click anywhere) ───────
+
+function BacklogDueDate({ issue, onUpdate }: {
+  issue: IssueWithDetails
+  onUpdate: (patch: IssueUpdate) => void
+}) {
+  const { statuses: projectStatuses } = useProjectSettings()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const isOverdue = issue.due_date && issue.due_date < new Date().toISOString().slice(0, 10)
+    && !projectStatuses.find((s) => s.name === issue.status)?.is_completed
+
+  function openPicker() {
+    // showPicker() is the modern way to open the native date dropdown.
+    const el = inputRef.current
+    if (!el) return
+    if (typeof el.showPicker === 'function') el.showPicker()
+    else el.click()
+  }
+
+  if (!issue.due_date) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); openPicker() }}
+        className="text-[11px] text-gray-300 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
+        title="Set due date"
+      >
+        <input
+          ref={inputRef}
+          type="date"
+          value=""
+          onChange={(e) => onUpdate({ due_date: e.target.value || null })}
+          className="sr-only"
+        />
+        <Calendar size={11} />
+      </button>
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); openPicker() }}
+      className={cn(
+        'text-[11px] font-medium flex items-center gap-1',
+        isOverdue ? 'text-red-500' : 'text-gray-400 hover:text-blue-600',
+      )}
+      title="Change due date"
+    >
+      <input
+        ref={inputRef}
+        type="date"
+        value={issue.due_date}
+        onChange={(e) => onUpdate({ due_date: e.target.value || null })}
+        className="sr-only"
+      />
+      <Calendar size={11} />
+      {formatDate(issue.due_date)}
+    </button>
+  )
+}
+
+// ── BacklogLabelsSelect: inline multi-select labels via portal ───────────────
+
+function BacklogLabelsSelect({ issue, allLabels, onUpdate }: {
+  issue: IssueWithDetails
+  allLabels: import('@/types/project-settings.types').ProjectLabel[]
+  onUpdate: (patch: IssueUpdate) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
+  const buttonRef = useRef<HTMLDivElement>(null)
+  const selectedIds = useMemo(() => new Set((issue.labels ?? []).map((l) => l.id)), [issue.labels])
+
+  function handleOpen(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect()
+      setPosition({ top: rect.bottom + 4, left: rect.left })
+    }
+    setOpen(true)
+  }
+
+  function toggle(id: string) {
+    const next = new Set(selectedIds)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    onUpdate({ label_ids: Array.from(next) })
+  }
+
+  if (!issue.labels || issue.labels.length === 0) return null
+  const MAX = 2
+  const visible = issue.labels.slice(0, MAX)
+  const hidden = issue.labels.slice(MAX)
+
+  return (
+    <>
+      <div
+        ref={buttonRef}
+        onClick={handleOpen}
+        onPointerDown={(e) => e.stopPropagation()}
+        className="flex items-center gap-1 cursor-pointer"
+        title="Change labels"
+      >
+        {visible.map((label) => (
+          <span
+            key={label.id}
+            className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 hidden md:inline-flex truncate max-w-[100px]"
+            style={{ backgroundColor: label.color + '22', color: label.color }}
+          >
+            {label.name}
+          </span>
+        ))}
+        {hidden.length > 0 && (
+          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 hidden md:inline-flex bg-gray-100 text-gray-600">
+            +{hidden.length}
+          </span>
+        )}
+      </div>
+      {open && position && typeof document !== 'undefined' && createPortal(
+        <>
+          <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
+          <div
+            className="fixed z-[70] bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[200px] max-h-[300px] overflow-y-auto"
+            style={{ top: position.top, left: position.left }}
+          >
+            <p className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Labels</p>
+            {allLabels.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-gray-400">No labels yet</p>
+            ) : allLabels.map((label) => {
+              const checked = selectedIds.has(label.id)
+              return (
+                <button
+                  key={label.id}
+                  type="button"
+                  onClick={() => toggle(label.id)}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50 transition-colors text-left"
+                >
+                  <input type="checkbox" checked={checked} readOnly className="h-3.5 w-3.5 accent-blue-500" />
+                  <span
+                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                    style={{ backgroundColor: label.color + '22', color: label.color }}
+                  >
+                    {label.name}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </>,
+        document.body,
+      )}
+    </>
   )
 }
 

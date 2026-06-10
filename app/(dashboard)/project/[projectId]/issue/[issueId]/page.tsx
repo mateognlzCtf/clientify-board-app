@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getIssueById } from '@/services/issues.service'
 import { getSprints } from '@/services/sprints.service'
 import { getProjectMembers } from '@/services/projects.service'
+import { getEpics } from '@/services/epics.service'
 import { IssuePageClient } from './IssuePageClient'
 
 interface Props {
@@ -19,10 +20,11 @@ export default async function IssueFullPage({ params }: Props) {
 
   const admin = createAdminClient()
 
-  const [{ data: issue, error }, { data: sprints }, { data: members }] = await Promise.all([
+  const [{ data: issue, error }, { data: sprints }, { data: members }, { data: epics }] = await Promise.all([
     getIssueById(admin, issueId),
     getSprints(admin, projectId),
     getProjectMembers(supabase, projectId),
+    getEpics(admin, projectId),
   ])
 
   if (error || !issue) notFound()
@@ -39,6 +41,7 @@ export default async function IssueFullPage({ params }: Props) {
         canDelete={canDelete}
         sprints={sprints ?? []}
         members={members ?? []}
+        epics={epics ?? []}
       />
     </div>
   )
