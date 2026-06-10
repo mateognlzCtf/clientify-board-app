@@ -4,7 +4,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import { Plus, Search, Ticket, MessageSquare, GripVertical, Layers, ChevronDown, CircleDot, Zap, Users, Flag, Settings2, MoreHorizontal, ExternalLink, Calendar, Tag, RotateCw } from 'lucide-react'
+import { Plus, Search, Ticket, MessageSquare, GripVertical, Layers, ChevronDown, CircleDot, Zap, Users, Flag, Settings2, MoreHorizontal, ExternalLink, Calendar, Tag, RotateCw, Link2 } from 'lucide-react'
 import { JiraFilterButton, type FilterFieldDef } from '@/components/issues/JiraFilterButton'
 import { AssigneeAvatars } from '@/components/issues/AssigneeAvatars'
 import {
@@ -127,11 +127,15 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
     }
   }, [searchParams])
   const [detailTarget, setDetailTarget] = useState<IssueWithDetails | null>(null)
+  // Keep the detail modal in sync with optimistic updates / new pages.
+  // Read from `localIssues` (current client state) rather than the immutable
+  // `issues` prop so tickets loaded via infinite scroll and inline edits both
+  // reflect in an open modal.
   useEffect(() => {
     if (!detailTarget) return
-    const fresh = issues.find((i) => i.id === detailTarget.id)
-    if (fresh) setDetailTarget(fresh)
-  }, [issues])
+    const fresh = localIssues.find((i) => i.id === detailTarget.id)
+    if (fresh && fresh !== detailTarget) setDetailTarget(fresh)
+  }, [localIssues, detailTarget])
   const [editTarget, setEditTarget] = useState<IssueWithDetails | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<IssueWithDetails | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
@@ -211,7 +215,15 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
   }, [queryIssues])
 
   const hasMore = query.hasNextPage
-  const loadingMore = query.isFetchingNextPage || query.isFetching
+  // Loading-more indicator + sentinel gate: only when the NEXT page is in flight.
+  const loadingMore = query.isFetchingNextPage
+  // Refresh button spinner: explicit local state so it spins ONLY when the
+  // user clicks refresh, not on background invalidations from inline edits.
+  const [manualRefreshing, setManualRefreshing] = useState(false)
+  const handleManualRefresh = useCallback(async () => {
+    setManualRefreshing(true)
+    try { await query.refetch() } finally { setManualRefreshing(false) }
+  }, [query])
 
   // Total tickets matching the current server-side filters.
   const totalCount = useMemo(() => {
@@ -221,19 +233,25 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
 
   // Infinite scroll: when the sentinel comes into view (within the internal
   // scroll container, not the page), fetch the next page.
+  // We keep the latest fetchNextPage / loadingMore in refs so the observer is
+  // only re-created when `hasMore` toggles, not on every parent re-render.
   const sentinelRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const fetchNextPageRef = useRef(query.fetchNextPage)
+  fetchNextPageRef.current = query.fetchNextPage
+  const loadingMoreRef = useRef(loadingMore)
+  loadingMoreRef.current = loadingMore
   useEffect(() => {
     const el = sentinelRef.current
     if (!el || !hasMore) return
     const observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting && !loadingMore) {
-        query.fetchNextPage()
+      if (entries[0].isIntersecting && !loadingMoreRef.current) {
+        fetchNextPageRef.current()
       }
     }, { root: scrollContainerRef.current, rootMargin: '300px' })
     observer.observe(el)
     return () => observer.disconnect()
-  }, [hasMore, loadingMore, query])
+  }, [hasMore])
 
   // When grouping is active, fetch real per-group totals from the server (the
   // visible groups would otherwise only count loaded rows, not the full set).
@@ -568,7 +586,7 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
         <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-auto">
         {listGroupBy !== 'none' && groupedIssues ? (
           <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleGroupedDragEnd}>
-              <table className="text-sm whitespace-nowrap" style={{ tableLayout: 'fixed', minWidth: '100%' }}>
+              <table className="text-sm whitespace-nowrap" style={{ tableLayout: 'fixed', minWidth: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
                 <thead>
                   <tr className="border-b border-gray-200 bg-gray-50">
                     {colVisible.type && <ResizableTh id="type" label="Type" widths={colWidths} setWidth={setColWidth} />}
@@ -597,7 +615,7 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
                     return (
                       <SortableContext key={group.key} items={group.issues.map((i) => i.id)} strategy={verticalListSortingStrategy}>
                         <>
-                          <tr className="bg-gray-50 border-y border-gray-100">
+                          <tr className="bg-gray-50 border-t border-gray-100">
                             <td colSpan={16} className="px-3 py-2">
                               <div className="flex items-center gap-2">
                                 <button
@@ -665,7 +683,7 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
         ) : (
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <SortableContext items={filtered.map((i) => i.id)} strategy={verticalListSortingStrategy}>
-              <table className="text-sm whitespace-nowrap" style={{ tableLayout: 'fixed', minWidth: '100%' }}>
+              <table className="text-sm whitespace-nowrap" style={{ tableLayout: 'fixed', minWidth: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
                 <thead>
                   <tr className="border-b border-gray-200 bg-gray-50">
                     {colVisible.type && <ResizableTh id="type" label="Type" widths={colWidths} setWidth={setColWidth} />}
@@ -740,11 +758,11 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
             <span>{filtered.length} of {totalCount}</span>
             <button
               type="button"
-              onClick={() => query.refetch()}
+              onClick={handleManualRefresh}
               className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
               title="Refresh"
             >
-              <RotateCw size={12} className={cn(loadingMore && 'animate-spin')} />
+              <RotateCw size={12} className={cn(manualRefreshing && 'animate-spin')} />
             </button>
           </div>
           <div />
@@ -839,10 +857,22 @@ function SortableIssueRow({
   onMenuToggle: (open: boolean) => void
 }) {
   const { statuses: projectStatuses, types: projectTypes } = useProjectSettings()
+  const { toast } = useToast()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: issue.id, disabled: disableDrag })
   const style = { transform: CSS.Transform.toString(transform), transition }
   const sprint = sprints.find((s) => s.id === issue.sprint_id)
   const isCompleted = projectStatuses.find((s) => s.name === issue.status)?.is_completed ?? false
+
+  async function handleCopyLink(e: React.MouseEvent) {
+    e.stopPropagation()
+    const url = `${window.location.origin}/project/${issue.project_id}/issue/${issue.id}`
+    try {
+      await navigator.clipboard.writeText(url)
+      toast('Link copied to clipboard.', 'success')
+    } catch {
+      toast('Could not copy link.', 'error')
+    }
+  }
 
   return (
     <tr
@@ -881,10 +911,22 @@ function SortableIssueRow({
           </div>
         </td>
       )}
-      <td className={cn(
-        'px-4 py-3 font-mono text-xs border-r border-gray-100 hover:text-blue-600 transition-colors',
-        isCompleted ? 'text-gray-300 line-through' : 'text-gray-400'
-      )}>{issue.key}</td>
+      <td className="px-4 py-3 border-r border-gray-100">
+        <div className="flex items-center gap-1.5">
+          <span className={cn(
+            'font-mono text-xs',
+            isCompleted ? 'text-gray-300 line-through' : 'text-gray-400'
+          )}>{issue.key}</span>
+          <button
+            type="button"
+            onClick={handleCopyLink}
+            title="Copy link"
+            className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded p-0.5 transition-all"
+          >
+            <Link2 size={11} />
+          </button>
+        </div>
+      </td>
       {colVisible.summary && (
         <td className="px-4 py-3 max-w-[260px] border-r border-gray-100 text-gray-900 font-medium">
           <InlineText
@@ -1020,9 +1062,12 @@ function SortableIssueRow({
       {colVisible.reporter && (
         <td className="px-4 py-3 border-r border-gray-100"><UserCell person={issue.reporter} fallback="Unknown" /></td>
       )}
-      <td />
+      <td className="border-r border-gray-100" />
       <td
-        className="sticky right-0 z-10 bg-white group-hover:bg-gray-50 border-l border-gray-100 px-2 py-3 transition-colors"
+        className={cn(
+          'sticky right-0 z-10 border-l border-gray-100 px-2 py-3 transition-colors',
+          isDragging ? 'bg-blue-50' : 'bg-white group-hover:bg-gray-50',
+        )}
         onClick={(e) => e.stopPropagation()}
         style={{ width: 56 }}
       >
