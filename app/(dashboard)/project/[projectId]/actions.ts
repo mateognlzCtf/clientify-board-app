@@ -12,12 +12,16 @@ import {
   getIssuesPaginated,
   getIssuesListLite,
   getIssueGroupCounts,
+  getIssueById,
+  getIssueHeavyFields,
   type IssuesPageFilters,
   type IssuesPageResult,
   type IssuesListLiteFilters,
   type IssuesListLiteResult,
   type IssueGroupBy,
+  type IssueHeavyFields,
 } from '@/services/issues.service'
+import type { IssueWithDetails } from '@/types/issue.types'
 import { setIssueLabels } from '@/services/project-labels.service'
 import type { IssueCreate, IssueUpdate, Issue } from '@/types/issue.types'
 import type { ServiceResult } from '@/types/common.types'
@@ -381,5 +385,31 @@ export async function loadIssueGroupCountsAction(
   await getAuthenticatedUser()
   const supabase = createAdminClient()
   return getIssueGroupCounts(supabase, projectId, { filters, groupBy })
+}
+
+/**
+ * Fetch a single issue with its full payload (description, all joins).
+ * Used by views that render lite issues but need the heavy fields on demand
+ * — e.g. when opening the Board's detail modal.
+ */
+export async function loadIssueByIdAction(
+  issueId: string,
+): Promise<ServiceResult<IssueWithDetails>> {
+  await getAuthenticatedUser()
+  const supabase = createAdminClient()
+  return getIssueById(supabase, issueId)
+}
+
+/**
+ * Fetch ONLY the heavy fields that the lite payload skips. Faster than
+ * loadIssueByIdAction because it skips the joins (assignee, epic, labels,
+ * comments) that the caller already has cached from the lite query.
+ */
+export async function loadIssueHeavyFieldsAction(
+  issueId: string,
+): Promise<ServiceResult<IssueHeavyFields>> {
+  await getAuthenticatedUser()
+  const supabase = createAdminClient()
+  return getIssueHeavyFields(supabase, issueId)
 }
 

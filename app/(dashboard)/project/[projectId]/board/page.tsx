@@ -1,12 +1,31 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getIssues } from '@/services/issues.service'
+import { getIssuesListLite } from '@/services/issues.service'
+import type { IssueListLite, IssueWithDetails } from '@/types/issue.types'
 import { KanbanBoard } from './KanbanBoard'
 
 interface Props {
   params: Promise<{ projectId: string }>
 }
+
+// Board doesn't render description / start_date / slack_thread / resolved_at,
+// so we fetch the lite payload (~85% smaller than the full one) and pad the
+// missing fields with null to keep IssueWithDetails consumers happy.
+function liteToFull(lite: IssueListLite): IssueWithDetails {
+  return {
+    ...lite,
+    description: null,
+    start_date: null,
+    slack_thread: null,
+    resolved_at: null,
+  }
+}
+
+// Upper bound on board size: we still load all tickets for the project in a
+// single query (the board needs to distribute them across status columns), but
+// the request stays sane for projects in the low thousands.
+const BOARD_LIMIT = 5000
 
 export default async function BoardPage({ params }: Props) {
   const { projectId } = await params
@@ -19,8 +38,8 @@ export default async function BoardPage({ params }: Props) {
 
   // Sprints/members/epics live in the layout context (loaded once per project entry).
   // The board only fetches issues + the current user's membership row.
-  const [{ data: issues }, { data: membership }] = await Promise.all([
-    getIssues(admin, projectId),
+  const [{ data: liteResult }, { data: membership }] = await Promise.all([
+    getIssuesListLite(admin, projectId, { limit: BOARD_LIMIT, offset: 0 }),
     admin
       .from('project_members')
       .select('role')
@@ -29,6 +48,7 @@ export default async function BoardPage({ params }: Props) {
       .single(),
   ])
 
+  const issues = (liteResult?.data ?? []).map(liteToFull)
   const canDelete = membership?.role === 'owner' || membership?.role === 'admin'
 
   return (
@@ -36,7 +56,7 @@ export default async function BoardPage({ params }: Props) {
       projectId={projectId}
       currentUserId={user.id}
       canDelete={canDelete}
-      issues={issues ?? []}
+      issues={issues}
     />
   )
 }

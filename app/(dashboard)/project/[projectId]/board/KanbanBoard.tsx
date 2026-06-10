@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import {
   DndContext,
@@ -17,12 +18,11 @@ import {
 } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { SlidersHorizontal, X, ChevronRight, ChevronDown, Search, Plus, Layers } from 'lucide-react'
+import { SlidersHorizontal, X, ChevronRight, ChevronDown, Search, Plus, Layers, Pencil, Check } from 'lucide-react'
 import { AssigneeAvatars } from '@/components/issues/AssigneeAvatars'
 import { cn } from '@/lib/utils/cn'
 import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { IssueDetail } from '@/components/issues/IssueDetail'
 import { IssueForm } from '@/components/issues/IssueForm'
 import { PriorityIcon, ALL_PRIORITIES, priorityLabel } from '@/components/issues/PriorityIcon'
 import { TypeIcon } from '@/components/issues/TypeIcon'
@@ -30,7 +30,7 @@ import { StatusBadge } from '@/components/issues/StatusBadge'
 import { useToast } from '@/providers/ToastProvider'
 import { useProjectSettings, formatSettingLabel } from '@/contexts/ProjectSettingsContext'
 import { useProjectData } from '@/contexts/ProjectDataContext'
-import type { ProjectStatus } from '@/types/project-settings.types'
+import type { ProjectStatus, ProjectIssueType as ProjectType, ProjectLabel as ProjectLabelType } from '@/types/project-settings.types'
 import type { IssueWithDetails, IssueUpdate } from '@/types/issue.types'
 import type { ProjectMemberPreview } from '@/services/projects.service'
 import type { Sprint } from '@/types/sprint.types'
@@ -53,9 +53,10 @@ interface BoardFilters {
   labels: string[]
   priorities: string[]
   types: string[]
+  parents: string[]
 }
 
-const EMPTY_FILTERS: BoardFilters = { sprints: [], assignees: [], labels: [], priorities: [], types: [] }
+const EMPTY_FILTERS: BoardFilters = { sprints: [], assignees: [], labels: [], priorities: [], types: [], parents: [] }
 
 type GroupBy = 'none' | 'assignee' | 'epic'
 
@@ -65,8 +66,18 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
   const searchParams = useSearchParams()
   const { toast } = useToast()
   const { statuses: projectStatuses, types: projectTypes, labels: projectLabels } = useProjectSettings()
-  const { sprints, members, epics } = useProjectData()
-  useRefreshOnFocus(() => setDetailTarget(null))
+  const { sprints, members: rawMembers, epics } = useProjectData()
+  const members = useMemo(
+    () => [...rawMembers].sort((a, b) =>
+      (a.profile?.full_name ?? a.user_id).localeCompare(
+        b.profile?.full_name ?? b.user_id,
+        undefined,
+        { sensitivity: 'base' },
+      ),
+    ),
+    [rawMembers],
+  )
+  useRefreshOnFocus(() => {})
   useRealtimeRefresh(projectId)
 
   const [issues, setIssues] = useState<IssueWithDetails[]>(initialIssues)
@@ -83,19 +94,13 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
     })
   }
 
-  useEffect(() => { setIssues(initialIssues) }, [initialIssues])
-  useEffect(() => {
-    if (!detailTarget) return
-    const fresh = initialIssues.find((i) => i.id === detailTarget.id)
-    if (fresh) setDetailTarget(fresh)
-  }, [initialIssues])
-
   const [activeIssue, setActiveIssue] = useState<IssueWithDetails | null>(null)
-  const [detailTarget, setDetailTarget] = useState<IssueWithDetails | null>(null)
   const [editTarget, setEditTarget] = useState<IssueWithDetails | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<IssueWithDetails | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [createStatus, setCreateStatus] = useState<string | null>(null)
+
+  useEffect(() => { setIssues(initialIssues) }, [initialIssues])
 
   useEffect(() => {
     if (searchParams.get('new') === '1') {
@@ -127,6 +132,7 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
       if (filters.labels.length > 0 && !filters.labels.some((id) => issue.labels?.some((l) => l.id === id))) return false
       if (filters.priorities.length > 0 && !filters.priorities.includes(issue.priority)) return false
       if (filters.types.length > 0 && !filters.types.includes(issue.type)) return false
+      if (filters.parents.length > 0 && !filters.parents.includes(issue.epic_id ?? '__none__')) return false
       return true
     })
   }, [issues, filters, searchQuery])
@@ -162,8 +168,12 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
     filters.types.forEach((v) => {
       chips.push({ key: `type-${v}`, label: formatSettingLabel(v), field: 'types', value: v })
     })
+    filters.parents.forEach((v) => {
+      const label = v === '__none__' ? 'No parent' : (epics.find((e) => e.id === v)?.name ?? v)
+      chips.push({ key: `parent-${v}`, label, field: 'parents', value: v })
+    })
     return chips
-  }, [filters, sprints, members, projectLabels])
+  }, [filters, sprints, members, projectLabels, epics])
 
   function removeChip(field: keyof BoardFilters, value: string) {
     setFilters((prev) => ({ ...prev, [field]: prev[field].filter((v) => v !== value) }))
@@ -237,6 +247,35 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
     [issues, projectId, initialIssues, toast, router, projectStatuses]
   )
 
+  // Inline editing from cards: optimistic local update + server persist.
+  // Resolves nested objects (assignee, epic, labels) from settings so the
+  // card re-renders instantly with the new values.
+  const handleInlineUpdate = useCallback(async (issueId: string, patch: IssueUpdate) => {
+    setIssues((prev) => prev.map((i) => {
+      if (i.id !== issueId) return i
+      const updated: IssueWithDetails = { ...i, ...patch } as IssueWithDetails
+      if (patch.label_ids !== undefined) {
+        updated.labels = patch.label_ids
+          .map((id) => projectLabels.find((l) => l.id === id))
+          .filter((l): l is typeof projectLabels[number] => !!l)
+      }
+      if (patch.epic_id !== undefined) {
+        updated.epic = patch.epic_id ? (epics.find((e) => e.id === patch.epic_id) ?? null) : null
+      }
+      if (patch.assignee_id !== undefined) {
+        updated.assignee = patch.assignee_id
+          ? (rawMembers.find((m) => m.user_id === patch.assignee_id)?.profile ?? null)
+          : null
+      }
+      return updated
+    }))
+    const { error } = await updateIssueAction(projectId, issueId, patch)
+    if (error) {
+      toast(error, 'error')
+      setIssues(initialIssues)
+    }
+  }, [projectId, projectLabels, epics, rawMembers, toast, initialIssues])
+
   async function handleEdit(data: IssueUpdate) {
     if (!editTarget) return
     const { error } = await updateIssueAction(projectId, editTarget.id, data)
@@ -254,7 +293,6 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
     else {
       toast('Ticket deleted.', 'success')
       setDeleteTarget(null)
-      setDetailTarget(null)
       router.refresh()
     }
     setDeleteLoading(false)
@@ -269,9 +307,9 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
   }
 
   return (
-    <>
+    <div className="h-full flex flex-col">
       {/* Toolbar — outside DndContext to avoid pointer event conflicts */}
-      <div className="mx-6 mt-4 mb-0 flex items-center gap-3 flex-wrap">
+      <div className="mx-6 mt-4 mb-0 flex items-center gap-3 flex-wrap shrink-0">
         {/* Search */}
         <div className="relative">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
@@ -309,6 +347,7 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
           types={projectTypes}
           labels={projectLabels}
           priorities={ALL_PRIORITIES}
+          epics={epics}
           hasFilters={hasFilters}
         />
 
@@ -317,7 +356,7 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
       </div>
 
       {activeChips.length > 0 && (
-        <div className="mx-6 mt-2 flex items-center gap-1.5 flex-wrap">
+        <div className="mx-6 mt-2 flex items-center gap-1.5 flex-wrap shrink-0">
           {activeChips.map((chip) => (
             <span
               key={chip.key}
@@ -346,21 +385,34 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
       >
 
         {groupBy === 'none' ? (
-          /* ── Regular column layout ── */
-          <div className="flex gap-3 px-6 py-4 overflow-x-auto pb-8 items-stretch">
-            {projectStatuses.map((s) => (
-              <KanbanColumn
-                key={s.id}
-                status={s}
-                issues={issuesByStatus[s.name] ?? []}
-                onCardClick={setDetailTarget}
-                onCreateClick={() => setCreateStatus(s.name)}
-              />
-            ))}
+          /* ── Regular column layout ──
+              Structurally identical to swimlane mode (which doesn't have
+              the overlap issue): a wrapper div around the flex-row of
+              columns. Per-column sticky headers naturally scroll away
+              when each column's content is exhausted. */
+          <div className="flex-1 min-h-0 px-6 pb-4 overflow-x-auto overflow-y-auto">
+            <div className="mt-4">
+              <div className="flex gap-3 items-start">
+                {projectStatuses.map((s) => (
+                  <KanbanColumn
+                    key={s.id}
+                    status={s}
+                    issues={issuesByStatus[s.name] ?? []}
+                    onCardClick={(issue) => router.push(`/project/${projectId}/issue/${issue.id}`)}
+                    onCreateClick={() => setCreateStatus(s.name)}
+                    onInlineUpdate={handleInlineUpdate}
+                    members={members}
+                    epics={epics}
+                    projectTypes={projectTypes}
+                    projectLabels={projectLabels}
+                  />
+                ))}
+              </div>
+            </div>
           </div>
         ) : (
           /* ── Swimlane layout ── */
-          <div className="px-6 pb-8 overflow-x-auto">
+          <div className="flex-1 min-h-0 px-6 pb-4 overflow-x-auto overflow-y-auto">
             {groups.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-12">No tickets match current filters.</p>
             ) : groups.map((group) => {
@@ -408,8 +460,13 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
                           status={s}
                           droppableId={`${group.id}||${s.name}`}
                           issues={getGroupIssues(group.id, s.name)}
-                          onCardClick={setDetailTarget}
+                          onCardClick={(issue) => router.push(`/project/${projectId}/issue/${issue.id}`)}
                           onCreateClick={() => setCreateStatus(s.name)}
+                          onInlineUpdate={handleInlineUpdate}
+                          members={members}
+                          epics={epics}
+                          projectTypes={projectTypes}
+                          projectLabels={projectLabels}
                         />
                       ))}
                     </div>
@@ -424,30 +481,6 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
           {activeIssue && <KanbanCard issue={activeIssue} overlay />}
         </DragOverlay>
       </DndContext>
-
-      {/* Ticket detail modal */}
-      <Modal open={detailTarget !== null} onClose={() => setDetailTarget(null)} title={detailTarget?.key ?? ''} size="2xl" externalHref={detailTarget ? `/project/${projectId}/issue/${detailTarget.id}` : undefined}>
-        {detailTarget && (
-          <IssueDetail
-            issue={detailTarget}
-            currentUserId={currentUserId}
-            projectId={projectId}
-            members={members}
-            sprints={sprints}
-            epics={epics}
-            canDelete={canDelete}
-            onEdit={() => { setDetailTarget(null); setEditTarget(detailTarget) }}
-            onDelete={() => { setDetailTarget(null); setDeleteTarget(detailTarget) }}
-            onUpdated={(patch) => {
-              const resolved = patch.label_ids !== undefined
-                ? { ...patch, labels: projectLabels.filter((l) => patch.label_ids!.includes(l.id)) }
-                : patch
-              setDetailTarget((prev) => prev ? { ...prev, ...resolved } : prev)
-              setIssues((prev) => prev.map((i) => i.id === detailTarget.id ? { ...i, ...resolved } : i))
-            }}
-          />
-        )}
-      </Modal>
 
       {/* Create modal */}
       <Modal open={createStatus !== null} onClose={() => setCreateStatus(null)} title="Create ticket" size="xl">
@@ -483,7 +516,7 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
         description={`Are you sure you want to delete "${deleteTarget?.title}"? This cannot be undone.`}
         confirmLabel="Yes, delete"
       />
-    </>
+    </div>
   )
 }
 
@@ -552,7 +585,7 @@ function GroupButton({ groupBy, onChange }: { groupBy: GroupBy; onChange: (g: Gr
 
 // ── JiraFilterButton ──────────────────────────────────────────────────────────
 
-type FilterFieldId = 'sprints' | 'assignees' | 'labels' | 'priorities' | 'types'
+type FilterFieldId = 'sprints' | 'assignees' | 'labels' | 'priorities' | 'types' | 'parents'
 
 interface FieldDef {
   id: FilterFieldId
@@ -561,7 +594,7 @@ interface FieldDef {
 }
 
 function JiraFilterButton({
-  filters, onChange, sprints, members, types, labels, priorities, hasFilters,
+  filters, onChange, sprints, members, types, labels, priorities, epics, hasFilters,
 }: {
   filters: BoardFilters
   onChange: (f: BoardFilters) => void
@@ -570,6 +603,7 @@ function JiraFilterButton({
   types: import('@/types/project-settings.types').ProjectIssueType[]
   labels: import('@/types/project-settings.types').ProjectLabel[]
   priorities: string[]
+  epics: Epic[]
   hasFilters: boolean
 }) {
   const [open, setOpen] = useState(false)
@@ -607,6 +641,14 @@ function JiraFilterButton({
         })),
       ],
     },
+    ...(epics.length > 0 ? [{
+      id: 'parents' as FilterFieldId,
+      label: 'Parent',
+      options: [
+        { value: '__none__', label: 'No parent' },
+        ...epics.map((e) => ({ value: e.id, label: e.name, color: e.color })),
+      ],
+    }] : []),
     ...(labels.length > 0 ? [{
       id: 'labels' as FilterFieldId,
       label: 'Labels',
@@ -763,16 +805,45 @@ function JiraFilterButton({
 // ── Column ───────────────────────────────────────────────────────────────────
 
 function KanbanColumn({
-  status, issues, onCardClick, onCreateClick, droppableId, hideHeader = false,
+  status, issues, onCardClick, onCreateClick, onInlineUpdate, members, epics, projectTypes, projectLabels, droppableId, hideHeader = false,
 }: {
   status: ProjectStatus
   issues: IssueWithDetails[]
   onCardClick: (issue: IssueWithDetails) => void
   onCreateClick: () => void
+  onInlineUpdate: (issueId: string, patch: IssueUpdate) => void
+  members: ProjectMemberPreview[]
+  epics: Epic[]
+  projectTypes: ProjectType[]
+  projectLabels: ProjectLabelType[]
   droppableId?: string
   hideHeader?: boolean
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: droppableId ?? status.name })
+
+  // Lazy-render cards: start with a window of CARDS_INITIAL and extend it
+  // as the user scrolls — the sentinel below comes into view and bumps
+  // `visibleCount` by CARDS_INCREMENT. The header counter still shows
+  // `issues.length` (the real total), never the rendered window.
+  const CARDS_INITIAL = 15
+  const CARDS_INCREMENT = 15
+  const [visibleCount, setVisibleCount] = useState(CARDS_INITIAL)
+  useEffect(() => { setVisibleCount(CARDS_INITIAL) }, [issues.length])
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    if (visibleCount >= issues.length) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        setVisibleCount((c) => Math.min(c + CARDS_INCREMENT, issues.length))
+      }
+    }, { rootMargin: '200px' })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [visibleCount, issues.length])
+
+  const visibleIssues = visibleCount >= issues.length ? issues : issues.slice(0, visibleCount)
 
   return (
     <div className={cn(
@@ -780,17 +851,30 @@ function KanbanColumn({
       isOver ? 'border-blue-300 bg-blue-50' : 'border-gray-200 bg-gray-50'
     )}>
       {!hideHeader && (
-        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-200">
+        <div className={cn(
+          'flex items-center gap-2 px-3 py-2.5 border-b border-gray-200 sticky top-0 z-30 rounded-t-xl',
+          isOver ? 'bg-blue-50' : 'bg-gray-50',
+        )}>
           <StatusBadge status={status.name} color={status.color ?? undefined} />
           <span className="ml-auto text-[11px] font-semibold text-gray-400 bg-white border border-gray-200 rounded-full px-1.5 py-0.5 leading-none">
             {issues.length}
           </span>
         </div>
       )}
-      <div ref={setNodeRef} className="flex flex-col gap-2 p-2 min-h-[80px] flex-1">
-        {issues.map((issue) => (
-          <KanbanCard key={issue.id} issue={issue} onClick={() => onCardClick(issue)} />
+      <div ref={setNodeRef} className="flex flex-col gap-2 p-2 min-h-[80px]">
+        {visibleIssues.map((issue) => (
+          <KanbanCard
+            key={issue.id}
+            issue={issue}
+            onClick={() => onCardClick(issue)}
+            onInlineUpdate={(patch) => onInlineUpdate(issue.id, patch)}
+            members={members}
+            epics={epics}
+            projectTypes={projectTypes}
+            projectLabels={projectLabels}
+          />
         ))}
+        {visibleCount < issues.length && <div ref={sentinelRef} className="h-1" />}
         {!status.requires_pause_reason && (
           <button
             onClick={onCreateClick}
@@ -811,15 +895,32 @@ function KanbanCard({
   issue,
   overlay = false,
   onClick,
+  onInlineUpdate,
+  members,
+  epics,
+  projectTypes,
+  projectLabels,
 }: {
   issue: IssueWithDetails
   overlay?: boolean
   onClick?: () => void
+  onInlineUpdate?: (patch: IssueUpdate) => void
+  members?: ProjectMemberPreview[]
+  epics?: Epic[]
+  projectTypes?: ProjectType[]
+  projectLabels?: ProjectLabelType[]
 }) {
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState(issue.title)
+  useEffect(() => { setTitleDraft(issue.title) }, [issue.title])
+
+  // Disable drag entirely while the title is being edited — otherwise pointer
+  // events inside the input (text selection, etc.) can still trigger a drag
+  // and the card "floats" away.
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: issue.id,
     data: { issue },
-    disabled: overlay,
+    disabled: overlay || editingTitle,
   })
 
   const style = transform && !overlay ? { transform: CSS.Translate.toString(transform) } : undefined
@@ -828,6 +929,20 @@ function KanbanCard({
     ? issue.assignee.full_name.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase()
     : null
 
+  const interactive = !overlay && !!onInlineUpdate
+
+  // Stop the drag listeners + the card's double-click from firing when the
+  // user interacts with an inline editor. Pointer-down also has to be
+  // stopped, or @dnd-kit will start tracking the pointer for a drag.
+  const stop = (e: React.SyntheticEvent) => { e.stopPropagation() }
+
+  function commitTitle() {
+    const next = titleDraft.trim()
+    if (next && next !== issue.title) onInlineUpdate?.({ title: next })
+    else setTitleDraft(issue.title)
+    setEditingTitle(false)
+  }
+
   return (
     <div
       ref={overlay ? undefined : setNodeRef}
@@ -835,26 +950,264 @@ function KanbanCard({
       {...(overlay ? {} : { ...attributes, ...listeners })}
       onClick={overlay ? undefined : onClick}
       className={cn(
-        'bg-white rounded-lg border border-gray-200 p-3 shadow-sm select-none flex flex-col gap-2',
+        'group/card bg-white rounded-lg border border-gray-200 p-3 shadow-sm select-none flex flex-col gap-2',
         isDragging && !overlay && 'opacity-30',
         overlay
           ? 'cursor-grabbing shadow-xl rotate-1 ring-2 ring-blue-300'
-          : 'cursor-pointer hover:border-blue-300 hover:shadow-md transition-all'
+          : 'cursor-pointer hover:border-blue-300 hover:shadow-md transition-[border-color,box-shadow] duration-150'
       )}
     >
       <div className="flex items-center justify-between">
         <span className="font-mono text-[10px] text-gray-400">{issue.key}</span>
-        <TypeIcon type={issue.type} />
+        {interactive && projectTypes && projectTypes.length > 0 ? (
+          <div
+            className="relative inline-block cursor-pointer hover:bg-gray-100 rounded p-0.5 -m-0.5"
+            onClick={stop}
+            onPointerDown={stop}
+            title="Change type"
+          >
+            <TypeIcon type={issue.type} />
+            <select
+              value={issue.type}
+              onChange={(e) => onInlineUpdate!({ type: e.target.value as IssueWithDetails['type'] })}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            >
+              {projectTypes.map((t) => (
+                <option key={t.id} value={t.name}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <TypeIcon type={issue.type} />
+        )}
       </div>
+
+      {/* Epic chip — inline editable only when one is assigned */}
       {issue.epic && (
-        <span
-          className="text-[10px] font-semibold px-2 py-0.5 rounded-full self-start"
-          style={{ backgroundColor: issue.epic.color + '22', color: issue.epic.color }}
-        >
-          {issue.epic.name}
-        </span>
+        interactive && epics ? (
+          <CardEpicSelect issue={issue} epics={epics} onUpdate={onInlineUpdate!} />
+        ) : (
+          <span
+            className="text-[10px] font-semibold px-2 py-0.5 rounded-full self-start"
+            style={{ backgroundColor: issue.epic.color + '22', color: issue.epic.color }}
+          >
+            {issue.epic.name}
+          </span>
+        )
       )}
-      {issue.labels?.length > 0 && (
+
+      {/* Labels — inline editable only when at least one is assigned */}
+      {issue.labels && issue.labels.length > 0 && (
+        interactive && projectLabels ? (
+          <CardLabelsSelect issue={issue} allLabels={projectLabels} onUpdate={onInlineUpdate!} />
+        ) : (
+          <div className="flex flex-wrap gap-1">
+            {issue.labels.map((label) => (
+              <span
+                key={label.id}
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                style={{ backgroundColor: label.color + '22', color: label.color }}
+              >
+                {label.name}
+              </span>
+            ))}
+          </div>
+        )
+      )}
+
+      {/* Title — pencil icon on hover opens the inline editor */}
+      {editingTitle ? (
+        <div
+          className="flex items-start gap-1"
+          onClick={stop}
+          onPointerDown={stop}
+          onDoubleClick={stop}
+        >
+          <input
+            autoFocus
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); commitTitle() }
+              else if (e.key === 'Escape') { setTitleDraft(issue.title); setEditingTitle(false) }
+            }}
+            className="flex-1 min-w-0 text-sm font-medium text-gray-800 leading-snug border border-blue-300 rounded px-1 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-200"
+          />
+          <button
+            type="button"
+            onClick={(e) => { stop(e); commitTitle() }}
+            className="shrink-0 p-1 rounded text-gray-500 hover:text-green-600 hover:bg-green-50 transition-colors"
+            title="Save (Enter)"
+          >
+            <Check size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { stop(e); setTitleDraft(issue.title); setEditingTitle(false) }}
+            className="shrink-0 p-1 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+            title="Cancel (Esc)"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      ) : (
+        <div className="relative flex items-start gap-1">
+          <p className="text-sm font-medium text-gray-800 leading-snug line-clamp-2 flex-1">{issue.title}</p>
+          {interactive && (
+            <button
+              type="button"
+              onClick={(e) => { stop(e); setEditingTitle(true) }}
+              onPointerDown={stop}
+              onDoubleClick={stop}
+              className="opacity-0 group-hover/card:opacity-100 transition-opacity shrink-0 p-0.5 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+              title="Edit title"
+            >
+              <Pencil size={11} />
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between mt-1">
+        {interactive ? (
+          <div
+            className="relative inline-block cursor-pointer hover:bg-gray-100 rounded px-1 -mx-1"
+            onClick={stop}
+            onPointerDown={stop}
+            title="Change priority"
+          >
+            <PriorityIcon priority={issue.priority} />
+            <select
+              value={issue.priority}
+              onChange={(e) => onInlineUpdate!({ priority: e.target.value as IssueWithDetails['priority'] })}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            >
+              {ALL_PRIORITIES.map((p) => (
+                <option key={p} value={p}>{priorityLabel(p)}</option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <PriorityIcon priority={issue.priority} />
+        )}
+
+        {/* Assignee — inline editable only when one is assigned */}
+        {issue.assignee && (
+          interactive && members ? (
+            <div
+              className="relative inline-block cursor-pointer"
+              onClick={stop}
+              onPointerDown={stop}
+              title={issue.assignee.full_name ?? 'Change assignee'}
+            >
+              <div className={`h-5 w-5 rounded-full flex items-center justify-center shrink-0 ${issue.assignee.status !== 'active' ? 'bg-gray-400' : 'bg-blue-500'}`}>
+                {issue.assignee.avatar_url ? (
+                  <img src={issue.assignee.avatar_url} className={`h-5 w-5 rounded-full object-cover ${issue.assignee.status !== 'active' ? 'grayscale opacity-60' : ''}`} alt="" />
+                ) : (
+                  <span className="text-[8px] font-bold text-white">{initials}</span>
+                )}
+              </div>
+              <select
+                value={issue.assignee_id ?? ''}
+                onChange={(e) => onInlineUpdate!({ assignee_id: e.target.value || null })}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              >
+                <option value="">Unassigned</option>
+                {members.map((m) => (
+                  <option key={m.user_id} value={m.user_id}>{m.profile?.full_name ?? m.user_id}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className={`h-5 w-5 rounded-full flex items-center justify-center shrink-0 ${issue.assignee.status !== 'active' ? 'bg-gray-400' : 'bg-blue-500'}`} title={`${issue.assignee.full_name ?? ''}${issue.assignee.status !== 'active' ? ' (Inactive)' : ''}`}>
+              {issue.assignee.avatar_url ? (
+                <img src={issue.assignee.avatar_url} className={`h-5 w-5 rounded-full object-cover ${issue.assignee.status !== 'active' ? 'grayscale opacity-60' : ''}`} alt="" />
+              ) : (
+                <span className="text-[8px] font-bold text-white">{initials}</span>
+              )}
+            </div>
+          )
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Inline epic selector (only rendered when the issue already has an epic) ─
+function CardEpicSelect({ issue, epics, onUpdate }: {
+  issue: IssueWithDetails
+  epics: Epic[]
+  onUpdate: (patch: IssueUpdate) => void
+}) {
+  const stop = (e: React.SyntheticEvent) => { e.stopPropagation() }
+  if (!issue.epic) return null
+  return (
+    <div
+      className="relative inline-block self-start cursor-pointer hover:opacity-80"
+      onClick={stop}
+      onPointerDown={stop}
+      title="Change parent"
+    >
+      <span
+        className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+        style={{ backgroundColor: issue.epic.color + '22', color: issue.epic.color }}
+      >
+        {issue.epic.name}
+      </span>
+      <select
+        value={issue.epic_id ?? ''}
+        onChange={(e) => onUpdate({ epic_id: e.target.value || null })}
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+      >
+        <option value="">No parent</option>
+        {epics.map((ep) => (
+          <option key={ep.id} value={ep.id}>{ep.name}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+// ── Inline labels multi-select (portal so it escapes the card's overflow) ───
+function CardLabelsSelect({ issue, allLabels, onUpdate }: {
+  issue: IssueWithDetails
+  allLabels: ProjectLabelType[]
+  onUpdate: (patch: IssueUpdate) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
+  const buttonRef = useRef<HTMLDivElement>(null)
+  const selectedIds = useMemo(() => new Set((issue.labels ?? []).map((l) => l.id)), [issue.labels])
+
+  function handleOpen(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect()
+      setPosition({ top: rect.bottom + 4, left: rect.left })
+    }
+    setOpen(true)
+  }
+
+  function toggle(id: string) {
+    const next = new Set(selectedIds)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    onUpdate({ label_ids: Array.from(next) })
+  }
+
+  // Only render when the issue already has at least one label assigned.
+  if (!issue.labels || issue.labels.length === 0) return null
+
+  return (
+    <>
+      <div
+        ref={buttonRef}
+        onClick={handleOpen}
+        onPointerDown={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+        className="cursor-pointer hover:bg-gray-100 rounded -mx-1 px-1 py-0.5"
+        title="Change labels"
+      >
         <div className="flex flex-wrap gap-1">
           {issue.labels.map((label) => (
             <span
@@ -866,20 +1219,40 @@ function KanbanCard({
             </span>
           ))}
         </div>
-      )}
-      <p className="text-sm font-medium text-gray-800 leading-snug line-clamp-2">{issue.title}</p>
-      <div className="flex items-center justify-between mt-1">
-        <PriorityIcon priority={issue.priority} />
-        {issue.assignee && (
-          <div className={`h-5 w-5 rounded-full flex items-center justify-center shrink-0 ${issue.assignee.status !== 'active' ? 'bg-gray-400' : 'bg-blue-500'}`} title={`${issue.assignee.full_name ?? ''}${issue.assignee.status !== 'active' ? ' (Inactive)' : ''}`}>
-            {issue.assignee.avatar_url ? (
-              <img src={issue.assignee.avatar_url} className={`h-5 w-5 rounded-full object-cover ${issue.assignee.status !== 'active' ? 'grayscale opacity-60' : ''}`} alt="" />
-            ) : (
-              <span className="text-[8px] font-bold text-white">{initials}</span>
-            )}
-          </div>
-        )}
       </div>
-    </div>
+      {open && position && typeof document !== 'undefined' && createPortal(
+        <>
+          <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
+          <div
+            className="fixed z-[70] bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[200px] max-h-[300px] overflow-y-auto"
+            style={{ top: position.top, left: position.left }}
+          >
+            <p className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Labels</p>
+            {allLabels.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-gray-400">No labels yet</p>
+            ) : allLabels.map((label) => {
+              const checked = selectedIds.has(label.id)
+              return (
+                <button
+                  key={label.id}
+                  type="button"
+                  onClick={() => toggle(label.id)}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50 transition-colors text-left"
+                >
+                  <input type="checkbox" checked={checked} readOnly className="h-3.5 w-3.5 accent-blue-500" />
+                  <span
+                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                    style={{ backgroundColor: label.color + '22', color: label.color }}
+                  >
+                    {label.name}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </>,
+        document.body,
+      )}
+    </>
   )
 }

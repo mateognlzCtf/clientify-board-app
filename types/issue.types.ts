@@ -89,6 +89,7 @@ export interface IssueListLite {
   sprint_id: string | null
   epic_id: string | null
   due_date: string | null
+  pause_reason: string | null
   created_at: string
   updated_at: string
   assignee: { id: string; full_name: string | null; avatar_url: string | null; status: string } | null

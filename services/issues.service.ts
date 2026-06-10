@@ -127,6 +127,7 @@ type RawIssueListLite = {
   sprint_id: string | null
   epic_id: string | null
   due_date: string | null
+  pause_reason: string | null
   created_at: string
   updated_at: string
   assignee: { id: string; full_name: string | null; avatar_url: string | null; status: string } | null
@@ -164,7 +165,7 @@ export async function getIssuesListLite(
   let query = supabase
     .from('issues')
     .select(`
-      id, project_id, key, title, status, priority, type, assignee_id, reporter_id, position, sprint_id, epic_id, due_date, created_at, updated_at,
+      id, project_id, key, title, status, priority, type, assignee_id, reporter_id, position, sprint_id, epic_id, due_date, pause_reason, created_at, updated_at,
       assignee:profiles!issues_assignee_id_fkey(id, full_name, avatar_url, status),
       reporter:profiles!issues_reporter_id_fkey(id, full_name, avatar_url, status),
       epic:epics(id, name, color),
@@ -240,6 +241,7 @@ export async function getIssuesListLite(
     sprint_id: row.sprint_id,
     epic_id: row.epic_id,
     due_date: row.due_date,
+    pause_reason: row.pause_reason,
     created_at: row.created_at,
     updated_at: row.updated_at,
     assignee: row.assignee,
@@ -250,6 +252,38 @@ export async function getIssuesListLite(
   }))
 
   return { data: { data: issues, hasMore, total: count ?? sliced.length }, error: null }
+}
+
+/**
+ * Fetch ONLY the heavy fields that the lite payload skips (description, dates,
+ * slack thread, etc.). Used by callers that already have a lite issue cached
+ * and just need to hydrate the modal/detail without re-fetching the joins
+ * (assignee, epic, labels, comments) that are already in the lite cache.
+ *
+ * Much faster than `getIssueById` for this use case — small select, no joins.
+ */
+export interface IssueHeavyFields {
+  description: string | null
+  start_date: string | null
+  slack_thread: string | null
+  pause_reason: string | null
+  resolved_at: string | null
+}
+
+export async function getIssueHeavyFields(
+  supabase: Client,
+  issueId: string,
+): Promise<ServiceResult<IssueHeavyFields>> {
+  const { data, error } = await supabase
+    .from('issues')
+    .select('description, start_date, slack_thread, pause_reason, resolved_at')
+    .eq('id', issueId)
+    .single()
+
+  if (error || !data) {
+    return { data: null, error: 'Ticket not found.' }
+  }
+  return { data: data as IssueHeavyFields, error: null }
 }
 
 /**
