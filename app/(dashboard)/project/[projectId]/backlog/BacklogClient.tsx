@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils/cn'
 import { formatDate } from '@/lib/utils/dates'
 import { useRefreshOnFocus } from '@/lib/hooks/useRefreshOnFocus'
 import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh'
+import { usePersistedState } from '@/lib/hooks/usePersistedState'
 import type { IssueWithDetails, IssueCreate, IssueUpdate, IssuePriority } from '@/types/issue.types'
 import type { Sprint, SprintCreate, SprintUpdate } from '@/types/sprint.types'
 import type { ProjectMemberPreview } from '@/services/projects.service'
@@ -121,10 +122,12 @@ export function BacklogClient({ projectId, currentUserId, canDelete, issues }: P
 
   const [searchQuery, setSearchQuery] = useState('')
 
-  // Filters
-  const [filters, setFilters] = useState<Record<string, string[]>>({
-    assignees: [], statuses: [], priorities: [], types: [], epics: [], labels: [],
-  })
+  // Filters persist per project in localStorage so navigating to another
+  // tab and coming back keeps the user's view.
+  const [filters, setFilters] = usePersistedState<Record<string, string[]>>(
+    `backlog-filters-v1-${projectId}`,
+    { assignees: [], statuses: [], priorities: [], types: [], epics: [], labels: [] },
+  )
 
   const hasFilters = Object.values(filters).some((v) => v.length > 0)
 

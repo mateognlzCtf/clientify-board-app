@@ -38,6 +38,7 @@ import type { Epic } from '@/types/epic.types'
 import { updateIssueAction, deleteIssueAction, createIssueAction } from '../actions'
 import { useRefreshOnFocus } from '@/lib/hooks/useRefreshOnFocus'
 import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh'
+import { usePersistedState } from '@/lib/hooks/usePersistedState'
 
 
 interface KanbanBoardProps {
@@ -81,10 +82,25 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
   useRealtimeRefresh(projectId)
 
   const [issues, setIssues] = useState<IssueWithDetails[]>(initialIssues)
-  const [filters, setFilters] = useState<BoardFilters>(EMPTY_FILTERS)
+  // Filters + groupBy persist per project in localStorage so navigating to
+  // another tab and coming back keeps the user's view.
+  const [filters, setFilters] = usePersistedState<BoardFilters>(`board-filters-v1-${projectId}`, EMPTY_FILTERS)
   const [searchQuery, setSearchQuery] = useState('')
-  const [groupBy, setGroupBy] = useState<GroupBy>('none')
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [groupBy, setGroupBy] = usePersistedState<GroupBy>(`board-group-v1-${projectId}`, 'none')
+  // Collapsed group keys persist per (project, groupBy).
+  const [collapsedGroups, setCollapsedGroups] = usePersistedState<Set<string>>(
+    `board-collapsed-v1-${projectId}-${groupBy}`,
+    new Set(),
+    {
+      serialize: (s) => JSON.stringify(Array.from(s)),
+      deserialize: (raw) => new Set(JSON.parse(raw) as string[]),
+    },
+  )
+  // Hold the columns render until localStorage-backed state has been read
+  // so the user doesn't see a flash of expanded swimlanes before they
+  // re-collapse to the persisted state.
+  const [hydrated, setHydrated] = useState(false)
+  useEffect(() => { setHydrated(true) }, [])
 
   function toggleGroup(id: string) {
     setCollapsedGroups((prev) => {
@@ -384,7 +400,9 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
         onDragEnd={handleDragEnd}
       >
 
-        {groupBy === 'none' ? (
+        {!hydrated ? (
+          <div className="flex-1 min-h-0" />
+        ) : groupBy === 'none' ? (
           /* ── Regular column layout ──
               Structurally identical to swimlane mode (which doesn't have
               the overlap issue): a wrapper div around the flex-row of

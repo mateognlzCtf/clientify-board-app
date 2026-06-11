@@ -31,6 +31,7 @@ import { cn } from '@/lib/utils/cn'
 import { formatDate, isOverdue } from '@/lib/utils/dates'
 import { useRefreshOnFocus } from '@/lib/hooks/useRefreshOnFocus'
 import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh'
+import { usePersistedState } from '@/lib/hooks/usePersistedState'
 import { useListColumnWidths, type ListColumnId } from '@/lib/hooks/useListColumnWidths'
 import { useListColumnVisibility, LIST_COLUMN_LABELS, LIST_COLUMN_ORDER } from '@/lib/hooks/useListColumnVisibility'
 import { RichTextEditor } from '@/components/issues/RichTextEditor'
@@ -112,9 +113,33 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
   const [activeIssue, setActiveIssue] = useState<IssueWithDetails | null>(null)
 
   const [search, setSearch] = useState('')
-  const [filters, setFilters] = useState<ActiveFilters>(initialFilters)
-  const [listGroupBy, setListGroupBy] = useState<'none' | 'status' | 'sprint' | 'assignee' | 'priority'>('none')
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  // Filters persist per project in localStorage. URL params take priority on
+  // initial load (so shared/bookmarked links honor the URL), and any change
+  // is mirrored both to the URL and to localStorage.
+  const [filters, setFilters] = usePersistedState<ActiveFilters>(`list-filters-v1-${projectId}`, initialFilters)
+  const urlHadFilters = useRef(Object.values(initialFilters).some((arr) => arr.length > 0))
+  useEffect(() => {
+    if (urlHadFilters.current) setFilters(initialFilters)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const [listGroupBy, setListGroupBy] = usePersistedState<'none' | 'status' | 'sprint' | 'assignee' | 'priority'>(`list-group-v1-${projectId}`, 'none')
+  // Collapsed group keys persist per (project, groupBy) — different group
+  // dimensions have different keys so collapsing by status doesn't bleed
+  // into the assignee grouping.
+  const [collapsedGroups, setCollapsedGroups] = usePersistedState<Set<string>>(
+    `list-collapsed-v1-${projectId}-${listGroupBy}`,
+    new Set(),
+    {
+      serialize: (s) => JSON.stringify(Array.from(s)),
+      deserialize: (raw) => new Set(JSON.parse(raw) as string[]),
+    },
+  )
+  // Hold the table render until localStorage-backed state has been read so
+  // the user doesn't see a flash of "all tickets expanded" before the
+  // collapsed-groups + filters are applied. Set in a `useEffect` so it
+  // flips on the next render, after all the persisted-state loaders fire.
+  const [hydrated, setHydrated] = useState(false)
+  useEffect(() => { setHydrated(true) }, [])
   const [createOpen, setCreateOpen] = useState(false)
   useEffect(() => {
     if (searchParams.get('new') === '1') {
@@ -196,11 +221,14 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
     getNextPageParam: (lastPage, allPages) =>
       lastPage.hasMore ? allPages.reduce((acc, p) => acc + p.data.length, 0) : undefined,
     initialData: { pages: [{ data: issues, hasMore: initialHasMore, total: initialTotal }], pageParams: [0] },
-    // Mark initialData as freshly fetched so React Query doesn't trigger a
-    // background refetch on mount (the server-rendered page is already current).
     initialDataUpdatedAt: Date.now(),
     staleTime: 30 * 1000,
-    refetchOnMount: false,
+    // Refetch on every mount so when the user navigates back from the detail
+    // page (after editing a ticket), the cached list refreshes without a
+    // manual click on the refresh button. The cached data is shown
+    // immediately (no flicker) and replaced with fresh data once the fetch
+    // completes — small extra fetch for guaranteed correctness.
+    refetchOnMount: 'always',
   })
 
   const queryIssues = useMemo(
@@ -593,7 +621,9 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
       )}
 
       {/* Table */}
-      {filtered.length > 0 ? (
+      {!hydrated ? (
+        <div className="w-full flex-1 min-h-0 bg-white rounded-xl border border-gray-200" />
+      ) : filtered.length > 0 ? (
       <div className="w-full min-h-0 max-h-full flex flex-col bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-auto">
         {listGroupBy !== 'none' && groupedIssues ? (
@@ -621,7 +651,7 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
+                <tbody>
                   {groupedIssues.map((group) => {
                     const collapsed = collapsedGroups.has(group.key)
                     return (
@@ -718,7 +748,7 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
+                <tbody>
                   {filtered.map((issue) => (
                     <SortableIssueRow
                       key={issue.id}
@@ -890,7 +920,12 @@ function SortableIssueRow({
     <tr
       ref={setNodeRef}
       style={style}
-      className={cn('group hover:bg-gray-50 transition-colors', isDragging && 'opacity-40 bg-blue-50')}
+      className={cn(
+        // Row separator: with `border-collapse: separate` on the table,
+        // <tr> borders don't render — so we apply border-top to each cell.
+        'group hover:bg-gray-50 transition-colors [&>td]:border-t [&>td]:border-gray-200',
+        isDragging && 'opacity-40 bg-blue-50',
+      )}
     >
       {colVisible.type && (
         <td className="px-3 py-3 border-r border-gray-100" onClick={(e) => e.stopPropagation()}>
