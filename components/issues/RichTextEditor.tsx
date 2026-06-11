@@ -127,8 +127,32 @@ export function renderDescriptionHTML(raw: string | null): string {
   const json = parseDescription(raw)
   if (!json) return ''
   try {
-    return generateHTML(json, buildDisplayExtensions())
+    return autolinkHtml(generateHTML(json, buildDisplayExtensions()))
   } catch { return '' }
+}
+
+/**
+ * Wrap plain-text URLs in <a> tags so legacy / pasted text becomes clickable.
+ * Tiptap's autolink only fires while typing — once content is stored, any URL
+ * that didn't pick up a link mark stays as plain text. This post-process
+ * step makes the rendered HTML always clickable.
+ *
+ * The leading-char group (whitespace, `>`, `(`, line start) prevents
+ * matching inside `href="..."` or inside an existing `<a>...URL</a>`
+ * (where the URL would be preceded by `>`).
+ */
+export function autolinkHtml(html: string): string {
+  return html.replace(
+    /(^|[\s>(])((?:https?:\/\/|www\.)[^\s<>"')]+)/g,
+    (_, lead: string, url: string) => {
+      // Drop trailing punctuation so it doesn't get pulled into the URL.
+      const trailingMatch = url.match(/[.,;:!?]+$/)
+      const trailing = trailingMatch ? trailingMatch[0] : ''
+      const core = trailing ? url.slice(0, -trailing.length) : url
+      const href = core.startsWith('http') ? core : `https://${core}`
+      return `${lead}<a href="${href}" target="_blank" rel="noopener noreferrer" class="tiptap-link">${core}</a>${trailing}`
+    },
+  )
 }
 
 interface RichTextEditorProps {

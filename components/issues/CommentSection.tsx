@@ -9,6 +9,8 @@ import Placeholder from '@tiptap/extension-placeholder'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import ImageExtension from '@tiptap/extension-image'
 import Mention from '@tiptap/extension-mention'
+import LinkExtension from '@tiptap/extension-link'
+import { autolinkHtml } from '@/components/issues/RichTextEditor'
 import { createLowlight, common } from 'lowlight'
 import { Trash2, Image as ImageIcon, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -29,18 +31,20 @@ const lowlight = createLowlight(common)
 
 function buildDisplayExtensions() {
   return [
-    StarterKit.configure({ codeBlock: false }),
+    StarterKit.configure({ codeBlock: false, link: false }),
     CodeBlockLowlight.configure({ lowlight }),
     ImageExtension.configure({ inline: false, allowBase64: true }),
+    LinkExtension.configure({ openOnClick: true, HTMLAttributes: { class: 'tiptap-link', target: '_blank', rel: 'noopener noreferrer' } }),
     Mention.configure({ HTMLAttributes: { class: 'mention-chip' } }),
   ]
 }
 
 function buildEditorExtensions(membersRef: React.MutableRefObject<ProjectMemberPreview[]>) {
   return [
-    StarterKit.configure({ codeBlock: false }),
+    StarterKit.configure({ codeBlock: false, link: false }),
     CodeBlockLowlight.configure({ lowlight }),
     ImageExtension.configure({ inline: false, allowBase64: true }),
+    LinkExtension.configure({ openOnClick: false, HTMLAttributes: { class: 'tiptap-link', target: '_blank', rel: 'noopener noreferrer' } }),
     Placeholder.configure({ placeholder: 'Write a comment… use @ to mention someone' }),
     Mention.configure({
       HTMLAttributes: { class: 'mention-chip' },
@@ -348,7 +352,7 @@ function CommentItem({
 
   const html = useMemo(() => {
     try {
-      return generateHTML(comment.content as JSONContent, displayExtensions)
+      return autolinkHtml(generateHTML(comment.content as JSONContent, displayExtensions))
     } catch {
       return ''
     }

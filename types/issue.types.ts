@@ -90,6 +90,7 @@ export interface IssueListLite {
   epic_id: string | null
   due_date: string | null
   pause_reason: string | null
+  resolved_at: string | null
   created_at: string
   updated_at: string
   assignee: { id: string; full_name: string | null; avatar_url: string | null; status: string } | null

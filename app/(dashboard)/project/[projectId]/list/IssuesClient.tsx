@@ -57,7 +57,6 @@ function liteToFull(lite: IssueListLite): IssueWithDetails {
     description: null,
     start_date: null,
     slack_thread: null,
-    resolved_at: null,
   }
 }
 
@@ -68,7 +67,16 @@ interface ActiveFilters {
   assignees: string[]
   labels: string[]
   parents: string[]
+  /** Quick presets: 'created' | 'resolved' | 'updated'. Multi-select OR. */
+  defaults: string[]
 }
+
+const DEFAULT_FILTER_OPTIONS = [
+  { value: 'created', label: 'Recently created' },
+  { value: 'resolved', label: 'Recently resolved' },
+  { value: 'updated', label: 'Recently updated' },
+]
+const RECENT_DAYS = 7
 
 interface IssuesClientProps {
   projectId: string
@@ -123,16 +131,27 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const [listGroupBy, setListGroupBy] = usePersistedState<'none' | 'status' | 'sprint' | 'assignee' | 'priority'>(`list-group-v1-${projectId}`, 'none')
-  // Collapsed group keys persist per (project, groupBy) — different group
-  // dimensions have different keys so collapsing by status doesn't bleed
-  // into the assignee grouping.
-  const [collapsedGroups, setCollapsedGroups] = usePersistedState<Set<string>>(
-    `list-collapsed-v1-${projectId}-${listGroupBy}`,
-    new Set(),
-    {
-      serialize: (s) => JSON.stringify(Array.from(s)),
-      deserialize: (raw) => new Set(JSON.parse(raw) as string[]),
+  // Collapsed-groups state — all dimensions persist together in a single
+  // localStorage key so that loading `listGroupBy` from storage doesn't
+  // re-key the collapsed-groups hook and cause a second load (which used
+  // to show an "all expanded" frame before re-collapsing).
+  const [collapsedMap, setCollapsedMap] = usePersistedState<Record<string, string[]>>(
+    `list-collapsed-v2-${projectId}`,
+    {},
+  )
+  const collapsedGroups = useMemo(
+    () => new Set(collapsedMap[listGroupBy] ?? []),
+    [collapsedMap, listGroupBy],
+  )
+  const setCollapsedGroups = useCallback<React.Dispatch<React.SetStateAction<Set<string>>>>(
+    (updater) => {
+      setCollapsedMap((prev) => {
+        const current = new Set(prev[listGroupBy] ?? [])
+        const next = typeof updater === 'function' ? (updater as (prev: Set<string>) => Set<string>)(current) : updater
+        return { ...prev, [listGroupBy]: Array.from(next) }
+      })
     },
+    [listGroupBy, setCollapsedMap],
   )
   // Hold the table render until localStorage-backed state has been read so
   // the user doesn't see a flash of "all tickets expanded" before the
@@ -187,20 +206,49 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
     if (next.parents.length) params.set('parent', next.parents.join(','))
     else params.delete('parent')
 
+    if (next.defaults.length) params.set('default', next.defaults.join(','))
+    else params.delete('default')
+
     router.replace(`${pathname}?${params.toString()}`, { scroll: false })
   }, [pathname, router, searchParams])
 
   const hasActiveFilters = filters.statuses.length > 0 || filters.priorities.length > 0 ||
-    filters.types.length > 0 || filters.assignees.length > 0 || filters.labels.length > 0 || filters.parents.length > 0
+    filters.types.length > 0 || filters.assignees.length > 0 || filters.labels.length > 0 ||
+    filters.parents.length > 0 || filters.defaults.length > 0
 
   // Server already applied filters; only search runs client-side over loaded items.
   const filtered = useMemo(() => {
-    if (!search.trim()) return localIssues
     const q = search.trim().toLowerCase()
-    return localIssues.filter((i) =>
-      i.title.toLowerCase().includes(q) || i.key.toLowerCase().includes(q)
-    )
-  }, [localIssues, search])
+    const hasSearch = q.length > 0
+    const defaults = new Set(filters.defaults)
+    const hasDefaults = defaults.size > 0
+    if (!hasSearch && !hasDefaults) return localIssues
+    const cutoff = hasDefaults
+      ? new Date(Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000).toISOString()
+      : ''
+    const matched = localIssues.filter((i) => {
+      if (hasSearch && !i.title.toLowerCase().includes(q) && !i.key.toLowerCase().includes(q)) return false
+      if (hasDefaults) {
+        const okCreated = defaults.has('created') && i.created_at >= cutoff
+        const okUpdated = defaults.has('updated') && i.updated_at >= cutoff
+        const okResolved = defaults.has('resolved') && i.resolved_at !== null && i.resolved_at >= cutoff
+        if (!okCreated && !okUpdated && !okResolved) return false
+      }
+      return true
+    })
+    // When a Default filter is on, sort by its date field DESC so the most
+    // recent are at the top. Otherwise leave the position-based order.
+    if (defaults.has('created')) {
+      return [...matched].sort((a, b) => b.created_at.localeCompare(a.created_at))
+    }
+    if (defaults.has('updated')) {
+      return [...matched].sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+    }
+    if (defaults.has('resolved')) {
+      return [...matched].sort((a, b) => (b.resolved_at ?? '').localeCompare(a.resolved_at ?? ''))
+    }
+    return matched
+  }, [localIssues, search, filters.defaults])
 
   // React Query manages pagination + caching. For small projects the queryKey
   // is constant ('all') so changing filters never triggers a refetch — the
@@ -516,7 +564,7 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
   }
 
   function clearFilters() {
-    applyFilters({ statuses: [], priorities: [], types: [], assignees: [], labels: [], parents: [] })
+    applyFilters({ statuses: [], priorities: [], types: [], assignees: [], labels: [], parents: [], defaults: [] })
   }
 
   return (
@@ -557,6 +605,10 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
         <JiraFilterButton
           fields={[
             {
+              id: 'defaults', label: 'Default filters',
+              options: DEFAULT_FILTER_OPTIONS,
+            },
+            {
               id: 'statuses', label: 'Status',
               options: projectStatuses.map((s) => ({ value: s.name, label: formatSettingLabel(s.name) })),
             },
@@ -588,7 +640,13 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
             } satisfies FilterFieldDef] : []),
           ]}
           values={filters as unknown as Record<string, string[]>}
-          onChange={(v) => applyFilters({ statuses: v.statuses ?? [], priorities: v.priorities ?? [], types: v.types ?? [], assignees: v.assignees ?? [], labels: v.labels ?? [], parents: v.parents ?? [] })}
+          onChange={(v) => {
+            // Default filters are mutually exclusive: keep only the most
+            // recently clicked option. The button's toggle appends new
+            // values to the end, so the tail is the user's latest pick.
+            const nextDefaults = (v.defaults ?? []).slice(-1)
+            applyFilters({ statuses: v.statuses ?? [], priorities: v.priorities ?? [], types: v.types ?? [], assignees: v.assignees ?? [], labels: v.labels ?? [], parents: v.parents ?? [], defaults: nextDefaults })
+          }}
         />
 
         {/* Group button */}
@@ -615,6 +673,13 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
               key={a}
               label={a === '__unassigned__' ? 'Unassigned' : (members.find((m) => m.user_id === a)?.profile?.full_name ?? a)}
               onRemove={() => applyFilters({ ...filters, assignees: filters.assignees.filter((x) => x !== a) })}
+            />
+          ))}
+          {filters.defaults.map((d) => (
+            <FilterChip
+              key={d}
+              label={DEFAULT_FILTER_OPTIONS.find((o) => o.value === d)?.label ?? d}
+              onRemove={() => applyFilters({ ...filters, defaults: filters.defaults.filter((x) => x !== d) })}
             />
           ))}
         </div>

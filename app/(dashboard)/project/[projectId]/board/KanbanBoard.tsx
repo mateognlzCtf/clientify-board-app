@@ -87,14 +87,27 @@ export function KanbanBoard({ projectId, currentUserId, canDelete, issues: initi
   const [filters, setFilters] = usePersistedState<BoardFilters>(`board-filters-v1-${projectId}`, EMPTY_FILTERS)
   const [searchQuery, setSearchQuery] = useState('')
   const [groupBy, setGroupBy] = usePersistedState<GroupBy>(`board-group-v1-${projectId}`, 'none')
-  // Collapsed group keys persist per (project, groupBy).
-  const [collapsedGroups, setCollapsedGroups] = usePersistedState<Set<string>>(
-    `board-collapsed-v1-${projectId}-${groupBy}`,
-    new Set(),
-    {
-      serialize: (s) => JSON.stringify(Array.from(s)),
-      deserialize: (raw) => new Set(JSON.parse(raw) as string[]),
+  // Collapsed-groups state — all dimensions persist together in a single
+  // localStorage key so that loading `groupBy` from storage doesn't re-key
+  // the collapsed-groups hook and cause a second load (which would show
+  // an "all expanded" frame before re-collapsing).
+  const [collapsedMap, setCollapsedMap] = usePersistedState<Record<string, string[]>>(
+    `board-collapsed-v2-${projectId}`,
+    {},
+  )
+  const collapsedGroups = useMemo(
+    () => new Set(collapsedMap[groupBy] ?? []),
+    [collapsedMap, groupBy],
+  )
+  const setCollapsedGroups = useCallback<React.Dispatch<React.SetStateAction<Set<string>>>>(
+    (updater) => {
+      setCollapsedMap((prev) => {
+        const current = new Set(prev[groupBy] ?? [])
+        const next = typeof updater === 'function' ? (updater as (prev: Set<string>) => Set<string>)(current) : updater
+        return { ...prev, [groupBy]: Array.from(next) }
+      })
     },
+    [groupBy, setCollapsedMap],
   )
   // Hold the columns render until localStorage-backed state has been read
   // so the user doesn't see a flash of expanded swimlanes before they

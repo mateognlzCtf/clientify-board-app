@@ -18,7 +18,6 @@ function liteToFull(lite: IssueListLite): IssueWithDetails {
     description: null,
     start_date: null,
     slack_thread: null,
-    resolved_at: null,
   }
 }
 
@@ -45,6 +44,7 @@ export default async function IssuesListPage({ params, searchParams }: Props) {
     assignees: parseParam('assignee'),
     labels: parseParam('label'),
     parents: parseParam('parent'),
+    defaults: parseParam('default'),
   }
 
   // Always paginated: fetch first page with the initial filters from the URL.

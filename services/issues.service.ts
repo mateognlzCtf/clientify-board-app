@@ -128,6 +128,7 @@ type RawIssueListLite = {
   epic_id: string | null
   due_date: string | null
   pause_reason: string | null
+  resolved_at: string | null
   created_at: string
   updated_at: string
   assignee: { id: string; full_name: string | null; avatar_url: string | null; status: string } | null
@@ -165,7 +166,7 @@ export async function getIssuesListLite(
   let query = supabase
     .from('issues')
     .select(`
-      id, project_id, key, title, status, priority, type, assignee_id, reporter_id, position, sprint_id, epic_id, due_date, pause_reason, created_at, updated_at,
+      id, project_id, key, title, status, priority, type, assignee_id, reporter_id, position, sprint_id, epic_id, due_date, pause_reason, resolved_at, created_at, updated_at,
       assignee:profiles!issues_assignee_id_fkey(id, full_name, avatar_url, status),
       reporter:profiles!issues_reporter_id_fkey(id, full_name, avatar_url, status),
       epic:epics(id, name, color),
@@ -242,6 +243,7 @@ export async function getIssuesListLite(
     epic_id: row.epic_id,
     due_date: row.due_date,
     pause_reason: row.pause_reason,
+    resolved_at: row.resolved_at,
     created_at: row.created_at,
     updated_at: row.updated_at,
     assignee: row.assignee,
@@ -627,6 +629,37 @@ export async function updateIssue(
     }
   }
 
+  // Auto-set `resolved_at` on status transitions in/out of completed
+  // statuses (defined per project by `mark as completed`). Only the
+  // transition matters: completed → completed leaves the original
+  // resolved_at intact; not-completed → not-completed touches nothing.
+  // Caller-passed `data.resolved_at` always wins over the automatic value.
+  let autoResolvedAt: { resolved_at: string | null } | undefined
+  if (data.status !== undefined && data.resolved_at === undefined) {
+    const { data: currentRow } = await supabase
+      .from('issues')
+      .select('status, project_id')
+      .eq('id', issueId)
+      .single<{ status: string; project_id: string }>()
+    if (currentRow && currentRow.status !== data.status) {
+      const { data: statusesRow } = await supabase
+        .from('project_statuses')
+        .select('name, is_completed')
+        .eq('project_id', currentRow.project_id)
+      const completedMap = new Map(
+        (statusesRow as Array<{ name: string; is_completed: boolean }> | null ?? [])
+          .map((s) => [s.name, s.is_completed]),
+      )
+      const wasCompleted = completedMap.get(currentRow.status) ?? false
+      const willBeCompleted = completedMap.get(data.status) ?? false
+      if (!wasCompleted && willBeCompleted) {
+        autoResolvedAt = { resolved_at: new Date().toISOString() }
+      } else if (wasCompleted && !willBeCompleted) {
+        autoResolvedAt = { resolved_at: null }
+      }
+    }
+  }
+
   const updatePayload: Record<string, unknown> = {
     ...(data.title !== undefined && { title: data.title.trim() }),
     ...(data.description !== undefined && { description: data.description?.trim() || null }),
@@ -642,6 +675,7 @@ export async function updateIssue(
     ...(data.slack_thread !== undefined && { slack_thread: data.slack_thread }),
     ...(data.pause_reason !== undefined && { pause_reason: data.pause_reason }),
     ...(data.resolved_at !== undefined && { resolved_at: data.resolved_at }),
+    ...(autoResolvedAt ?? {}),
   }
 
   // Nothing to update on the issues table itself (e.g. only label_ids changed).

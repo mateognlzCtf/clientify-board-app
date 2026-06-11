@@ -18,7 +18,6 @@ function liteToFull(lite: IssueListLite): IssueWithDetails {
     description: null,
     start_date: null,
     slack_thread: null,
-    resolved_at: null,
   }
 }
 
