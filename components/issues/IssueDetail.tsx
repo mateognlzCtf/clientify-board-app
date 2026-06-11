@@ -1000,8 +1000,8 @@ function InlineLabelPicker({
                   {checked && <span className="text-white text-[8px] font-bold">✓</span>}
                 </span>
                 <span
-                  className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full"
-                  style={{ backgroundColor: label.color + '22', color: label.color }}
+                  className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full border"
+                  style={{ backgroundColor: 'transparent', color: '#000', borderColor: label.color }}
                 >
                   {label.name}
                 </span>

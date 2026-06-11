@@ -57,12 +57,12 @@ export function ProjectsClient({ projects, currentUserId }: ProjectsClientProps)
         return
       }
 
-      toast('Proyecto actualizado.', 'success')
+      toast('Project updated.', 'success')
       setEditTarget(null)
       router.refresh()
     } catch (err) {
       console.error('[handleEdit] unexpected error:', err)
-      toast('Error inesperado al actualizar el proyecto.', 'error')
+      toast('Unexpected error while updating the project.', 'error')
     }
   }
 
@@ -108,16 +108,16 @@ export function ProjectsClient({ projects, currentUserId }: ProjectsClientProps)
       ) : (
         <EmptyState
           icon={<Search size={40} />}
-          title="Sin resultados"
-          description={`No hay proyectos que coincidan con "${search}".`}
+          title="No results"
+          description={`No projects match "${search}".`}
         />
       )}
 
-      {/* Modal: Editar proyecto */}
+      {/* Modal: Edit project */}
       <Modal
         open={editTarget !== null}
         onClose={() => setEditTarget(null)}
-        title="Editar proyecto"
+        title="Edit project"
       >
         {editTarget && (
           <ProjectForm

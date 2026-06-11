@@ -1,8 +1,8 @@
 'use client'
 
 /**
- * ProjectForm — formulario para crear y editar proyectos.
- * Se usa dentro de un Modal, no como página independiente.
+ * ProjectForm — form for creating and editing projects.
+ * Used inside a Modal, not as a standalone page.
  */
 import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
@@ -39,11 +39,11 @@ export function ProjectForm(props: ProjectFormProps) {
     const newErrors: typeof errors = {}
 
     if (!isNonEmptyString(name)) {
-      newErrors.name = 'El nombre es obligatorio.'
+      newErrors.name = 'Name is required.'
     }
-    if (!isEdit && !isValidProjectKey(key)) {
+    if (!isValidProjectKey(key)) {
       newErrors.key =
-        'La clave debe tener 1-5 caracteres: solo letras mayúsculas y números, empezando por una letra. Ej: CLF, PROJ'
+        'Key must be 1-5 characters: uppercase letters and digits only, starting with a letter. E.g. CLF, PROJ'
     }
 
     setErrors(newErrors)
@@ -57,7 +57,9 @@ export function ProjectForm(props: ProjectFormProps) {
     setLoading(true)
     try {
       if (isEdit) {
-        await (props as EditModeProps).onSubmit({ name, description })
+        const update: ProjectUpdate = { name, description }
+        if (key !== (props as EditModeProps).project.key) update.key = key
+        await (props as EditModeProps).onSubmit(update)
       } else {
         await (props as CreateModeProps).onSubmit({ name, key, description })
       }
@@ -66,25 +68,29 @@ export function ProjectForm(props: ProjectFormProps) {
     }
   }
 
-  // Auto-generar key desde el nombre (solo en modo crear)
+  // Auto-generate key from name (only in create mode).
+  // Name allows spaces and dots (display only); derived key keeps just A-Z0-9
+  // because it's used in URLs and ticket keys.
   function handleNameChange(value: string) {
-    const upper = value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 17)
+    const upper = value.toUpperCase().replace(/[^A-Z0-9 .]/g, '').slice(0, 17)
     setName(upper)
     if (!isEdit && !key) {
-      const autoKey = upper.slice(0, 5)
+      const autoKey = upper.replace(/[^A-Z0-9]/g, '').slice(0, 5)
       setKey(autoKey)
     }
   }
 
+  const keyChanged = isEdit && key !== (props as EditModeProps).project.key
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-      {/* Nombre */}
+      {/* Name */}
       <div>
         <label
           htmlFor="project-name"
           className="block text-sm font-medium text-gray-700 mb-1.5"
         >
-          Nombre del proyecto <span className="text-red-500">*</span>
+          Project name <span className="text-red-500">*</span>
         </label>
         <input
           id="project-name"
@@ -101,42 +107,45 @@ export function ProjectForm(props: ProjectFormProps) {
         )}
       </div>
 
-      {/* Clave del proyecto — solo en modo crear */}
-      {!isEdit && (
-        <div>
-          <label
-            htmlFor="project-key"
-            className="block text-sm font-medium text-gray-700 mb-1.5"
-          >
-            Clave del proyecto <span className="text-red-500">*</span>
-          </label>
-          <input
-            id="project-key"
-            type="text"
-            value={key}
-            onChange={(e) => setKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5))}
-            placeholder="CLF"
-            maxLength={5}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono
-                       focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
-                       placeholder:text-gray-400"
-          />
-          <p className="mt-1 text-xs text-gray-400">
-            Máx. 5 caracteres. Se usará para las keys de los tickets: <span className="font-mono">{key || 'CLF'}-1</span>
+      {/* Project key */}
+      <div>
+        <label
+          htmlFor="project-key"
+          className="block text-sm font-medium text-gray-700 mb-1.5"
+        >
+          Project key <span className="text-red-500">*</span>
+        </label>
+        <input
+          id="project-key"
+          type="text"
+          value={key}
+          onChange={(e) => setKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5))}
+          placeholder="CLF"
+          maxLength={5}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono
+                     focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                     placeholder:text-gray-400"
+        />
+        <p className="mt-1 text-xs text-gray-400">
+          Max. 5 characters. Used as the ticket key prefix: <span className="font-mono">{key || 'CLF'}-1</span>
+        </p>
+        {keyChanged && (
+          <p className="mt-1 text-xs text-amber-600">
+            Existing tickets keep their old prefix. Only new tickets will use <span className="font-mono">{key}-</span>.
           </p>
-          {errors.key && (
-            <p className="mt-1 text-xs text-red-600">{errors.key}</p>
-          )}
-        </div>
-      )}
+        )}
+        {errors.key && (
+          <p className="mt-1 text-xs text-red-600">{errors.key}</p>
+        )}
+      </div>
 
-      {/* Descripción */}
+      {/* Description */}
       <div>
         <label
           htmlFor="project-desc"
           className="block text-sm font-medium text-gray-700 mb-1.5"
         >
-          Descripción <span className="text-gray-400 font-normal">(opcional)</span>
+          Description <span className="text-gray-400 font-normal">(optional)</span>
         </label>
         <textarea
           id="project-desc"
@@ -144,7 +153,7 @@ export function ProjectForm(props: ProjectFormProps) {
           onChange={(e) => setDescription(e.target.value.slice(0, 120))}
           rows={3}
           maxLength={120}
-          placeholder="¿De qué trata este proyecto?"
+          placeholder="What's this project about?"
           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none
                      focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
                      placeholder:text-gray-400"
@@ -160,10 +169,10 @@ export function ProjectForm(props: ProjectFormProps) {
           onClick={props.onCancel}
           disabled={loading}
         >
-          Cancelar
+          Cancel
         </Button>
         <Button type="submit" loading={loading}>
-          {isEdit ? 'Guardar cambios' : 'Crear proyecto'}
+          {isEdit ? 'Save changes' : 'Create project'}
         </Button>
       </div>
     </form>

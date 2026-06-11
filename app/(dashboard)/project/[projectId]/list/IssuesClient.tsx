@@ -1609,8 +1609,8 @@ function InlineLabels({
             {value.map((l) => (
               <span
                 key={l.id}
-                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                style={{ backgroundColor: l.color + '22', color: l.color }}
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full border"
+                style={{ backgroundColor: 'transparent', color: '#000', borderColor: l.color }}
               >
                 {l.name}
               </span>
@@ -1640,8 +1640,8 @@ function InlineLabels({
                   className="rounded border-gray-300"
                 />
                 <span
-                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                  style={{ backgroundColor: l.color + '22', color: l.color }}
+                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full border"
+                  style={{ backgroundColor: 'transparent', color: '#000', borderColor: l.color }}
                 >
                   {l.name}
                 </span>

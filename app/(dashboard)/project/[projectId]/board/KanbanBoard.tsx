@@ -1036,8 +1036,8 @@ function KanbanCard({
             {issue.labels.map((label) => (
               <span
                 key={label.id}
-                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                style={{ backgroundColor: label.color + '22', color: label.color }}
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full border"
+                style={{ backgroundColor: 'transparent', color: '#000', borderColor: label.color }}
               >
                 {label.name}
               </span>
@@ -1243,8 +1243,8 @@ function CardLabelsSelect({ issue, allLabels, onUpdate }: {
           {issue.labels.map((label) => (
             <span
               key={label.id}
-              className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-              style={{ backgroundColor: label.color + '22', color: label.color }}
+              className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full border"
+              style={{ backgroundColor: 'transparent', color: '#000', borderColor: label.color }}
             >
               {label.name}
             </span>
@@ -1272,8 +1272,8 @@ function CardLabelsSelect({ issue, allLabels, onUpdate }: {
                 >
                   <input type="checkbox" checked={checked} readOnly className="h-3.5 w-3.5 accent-blue-500" />
                   <span
-                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                    style={{ backgroundColor: label.color + '22', color: label.color }}
+                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full border"
+                    style={{ backgroundColor: 'transparent', color: '#000', borderColor: label.color }}
                   >
                     {label.name}
                   </span>

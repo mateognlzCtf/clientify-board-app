@@ -2,14 +2,14 @@ import { cn } from '@/lib/utils/cn'
 import type { IssueStatus } from '@/types/issue.types'
 
 const STATUS_CONFIG: Record<IssueStatus, { label: string; className: string }> = {
-  todo:                 { label: 'To Do',                className: 'bg-blue-100 text-blue-700' },
-  in_progress:          { label: 'In Progress',          className: 'bg-yellow-100 text-yellow-700' },
-  in_review:            { label: 'In Review',            className: 'bg-purple-100 text-purple-700' },
-  staging_qa:           { label: 'Staging / QA',         className: 'bg-orange-100 text-orange-700' },
-  ready_for_production: { label: 'Ready for Production', className: 'bg-teal-100 text-teal-700' },
-  done:                 { label: 'Done',                 className: 'bg-green-100 text-green-700' },
-  canceled:             { label: 'Canceled',             className: 'bg-red-100 text-red-500' },
-  stopper:              { label: 'Stopper',              className: 'bg-red-200 text-red-700' },
+  todo:                 { label: 'To Do',                className: 'bg-blue-400 text-black' },
+  in_progress:          { label: 'In Progress',          className: 'bg-yellow-400 text-black' },
+  in_review:            { label: 'In Review',            className: 'bg-purple-400 text-black' },
+  staging_qa:           { label: 'Staging / QA',         className: 'bg-orange-400 text-black' },
+  ready_for_production: { label: 'Ready for Production', className: 'bg-teal-400 text-black' },
+  done:                 { label: 'Done',                 className: 'bg-green-400 text-black' },
+  canceled:             { label: 'Canceled',             className: 'bg-red-400 text-black' },
+  stopper:              { label: 'Stopper',              className: 'bg-red-500 text-black' },
 }
 
 export function StatusBadge({ status, color }: { status: string; color?: string }) {
@@ -18,7 +18,7 @@ export function StatusBadge({ status, color }: { status: string; color?: string 
     const c = color ?? '#6b7280'
     return (
       <span
-        style={{ backgroundColor: c + '22', color: c }}
+        style={{ backgroundColor: c, color: '#000' }}
         className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium capitalize"
       >
         {status.replace(/_/g, ' ')}

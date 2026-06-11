@@ -400,8 +400,8 @@ function StatusManager({
               </div>
               <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: status.color }} />
               <span
-                className="flex-1 text-xs font-semibold px-2 py-0.5 rounded border"
-                style={{ backgroundColor: status.color + '22', color: status.color, borderColor: status.color + '44' }}
+                className="flex-1 text-xs font-semibold px-2 py-0.5 rounded"
+                style={{ backgroundColor: status.color, color: '#000' }}
               >
                 {formatSettingLabel(status.name)}
               </span>
@@ -495,28 +495,26 @@ function ItemManager<T extends ItemBase>({
 }) {
   const [editId, setEditId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
-  const [editColor, setEditColor] = useState('#6b7280')
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
-  const [newColor, setNewColor] = useState('#6b7280')
   const [loading, setLoading] = useState(false)
 
   async function handleCreate() {
     if (!newName.trim()) return
     setLoading(true)
     const nextPos = (items[items.length - 1]?.position ?? 0) + 1000
-    const { data, error } = await onCreate(projectId, newName.trim(), newColor, nextPos)
+    const { data, error } = await onCreate(projectId, newName.trim(), '#6b7280', nextPos)
     setLoading(false)
     if (error || !data) { toast(error ?? 'Error', 'error'); return }
     setItems((prev) => [...prev, data])
     setNewName('')
-    setNewColor('#6b7280')
     toast('Created.', 'success')
     refresh()
   }
 
   async function handleUpdate(id: string) {
-    const { data, error } = await onUpdate(projectId, id, editName.trim(), editColor)
+    const existing = items.find((i) => i.id === id)
+    const { data, error } = await onUpdate(projectId, id, editName.trim(), existing?.color ?? '#6b7280')
     if (error || !data) { toast(error ?? 'Error', 'error'); return }
     setItems((prev) => prev.map((i) => i.id === id ? data : i))
     setEditId(null)
@@ -549,7 +547,6 @@ function ItemManager<T extends ItemBase>({
         <div key={item.id} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
           {editId === item.id ? (
             <>
-              <input type="color" value={editColor} onChange={(e) => setEditColor(e.target.value)} className="h-7 w-7 rounded cursor-pointer border border-gray-200 p-0.5" />
               <input
                 autoFocus
                 value={editName}
@@ -566,11 +563,7 @@ function ItemManager<T extends ItemBase>({
                 <button onClick={() => handleMove(index, 'up')} disabled={index === 0} className="p-0.5 text-gray-300 hover:text-gray-600 disabled:opacity-20"><ChevronUp size={12} /></button>
                 <button onClick={() => handleMove(index, 'down')} disabled={index === items.length - 1} className="p-0.5 text-gray-300 hover:text-gray-600 disabled:opacity-20"><ChevronDown size={12} /></button>
               </div>
-              <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
-              <span
-                className="flex-1 text-xs font-semibold px-2 py-0.5 rounded border"
-                style={{ backgroundColor: item.color + '22', color: item.color, borderColor: item.color + '44' }}
-              >
+              <span className="flex-1 text-xs font-semibold px-2 py-0.5 rounded bg-gray-100 text-gray-700">
                 {formatSettingLabel(item.name)}
               </span>
               <div className="relative">
@@ -585,7 +578,7 @@ function ItemManager<T extends ItemBase>({
                     <div className="fixed inset-0 z-10" onClick={() => setMenuOpenId(null)} />
                     <div className={`absolute right-0 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[140px] ${index >= items.length - 2 ? 'bottom-7' : 'top-7'}`}>
                       <button
-                        onClick={() => { setEditId(item.id); setEditName(item.name); setEditColor(item.color); setMenuOpenId(null) }}
+                        onClick={() => { setEditId(item.id); setEditName(item.name); setMenuOpenId(null) }}
                         className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
                       >
                         Edit
@@ -608,7 +601,6 @@ function ItemManager<T extends ItemBase>({
 
       {/* Add new */}
       <div className="flex items-center gap-2 pt-2">
-        <input type="color" value={newColor} onChange={(e) => setNewColor(e.target.value)} className="h-7 w-7 rounded cursor-pointer border border-gray-200 p-0.5" />
         <input
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
@@ -699,8 +691,8 @@ function LabelsManager({
             <>
               <span className="h-4 w-4 rounded-full shrink-0" style={{ backgroundColor: label.color }} />
               <span
-                className="flex-1 text-xs font-semibold px-2 py-0.5 rounded-full"
-                style={{ backgroundColor: label.color + '22', color: label.color }}
+                className="flex-1 text-xs font-semibold px-2 py-0.5 rounded-full border"
+                style={{ backgroundColor: 'transparent', color: '#000', borderColor: label.color }}
               >
                 {label.name}
               </span>
