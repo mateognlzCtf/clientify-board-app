@@ -317,6 +317,10 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
   const loadingMoreRef = useRef(loadingMore)
   loadingMoreRef.current = loadingMore
   useEffect(() => {
+    // `hydrated` is in the deps so the observer re-runs once the table
+    // (and the sentinel ref) actually mount after hydration; otherwise
+    // the ref is still null on the first run and we never wire up
+    // infinite scroll.
     const el = sentinelRef.current
     if (!el || !hasMore) return
     const observer = new IntersectionObserver((entries) => {
@@ -326,7 +330,7 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
     }, { root: scrollContainerRef.current, rootMargin: '300px' })
     observer.observe(el)
     return () => observer.disconnect()
-  }, [hasMore])
+  }, [hasMore, hydrated])
 
   // When grouping is active, fetch real per-group totals from the server (the
   // visible groups would otherwise only count loaded rows, not the full set).

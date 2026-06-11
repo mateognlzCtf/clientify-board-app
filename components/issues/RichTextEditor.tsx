@@ -137,22 +137,28 @@ export function renderDescriptionHTML(raw: string | null): string {
  * that didn't pick up a link mark stays as plain text. This post-process
  * step makes the rendered HTML always clickable.
  *
- * The leading-char group (whitespace, `>`, `(`, line start) prevents
- * matching inside `href="..."` or inside an existing `<a>...URL</a>`
- * (where the URL would be preceded by `>`).
+ * Implementation: split the HTML around existing `<a>...</a>` regions and
+ * only linkify the OUTSIDE parts. URLs that already have a link mark are
+ * preserved intact (otherwise they'd get nested into `<a><a>...</a></a>`,
+ * which browsers render as broken markup).
  */
 export function autolinkHtml(html: string): string {
-  return html.replace(
-    /(^|[\s>(])((?:https?:\/\/|www\.)[^\s<>"')]+)/g,
-    (_, lead: string, url: string) => {
-      // Drop trailing punctuation so it doesn't get pulled into the URL.
-      const trailingMatch = url.match(/[.,;:!?]+$/)
-      const trailing = trailingMatch ? trailingMatch[0] : ''
-      const core = trailing ? url.slice(0, -trailing.length) : url
-      const href = core.startsWith('http') ? core : `https://${core}`
-      return `${lead}<a href="${href}" target="_blank" rel="noopener noreferrer" class="tiptap-link">${core}</a>${trailing}`
-    },
-  )
+  const parts = html.split(/(<a\b[^>]*>[\s\S]*?<\/a>)/gi)
+  return parts.map((part, i) => {
+    // Odd-indexed parts are existing anchors — leave them alone.
+    if (i % 2 === 1) return part
+    return part.replace(
+      /(^|[\s>(])((?:https?:\/\/|www\.)[^\s<>"')]+)/g,
+      (_, lead: string, url: string) => {
+        // Drop trailing punctuation so it doesn't get pulled into the URL.
+        const trailingMatch = url.match(/[.,;:!?]+$/)
+        const trailing = trailingMatch ? trailingMatch[0] : ''
+        const core = trailing ? url.slice(0, -trailing.length) : url
+        const href = core.startsWith('http') ? core : `https://${core}`
+        return `${lead}<a href="${href}" target="_blank" rel="noopener noreferrer" class="tiptap-link">${core}</a>${trailing}`
+      },
+    )
+  }).join('')
 }
 
 interface RichTextEditorProps {
