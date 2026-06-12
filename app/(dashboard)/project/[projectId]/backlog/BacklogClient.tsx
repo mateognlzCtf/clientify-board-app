@@ -983,7 +983,15 @@ function DraggableIssueRow({
         </select>
       </div>
 
-      <span className="font-mono text-[11px] text-gray-400 w-16 shrink-0">{issue.key}</span>
+      <button
+        type="button"
+        onClick={(e) => { stop(e); onIssueClick(issue) }}
+        onPointerDown={stop}
+        className="font-mono text-[11px] text-gray-400 hover:text-blue-600 hover:underline w-16 shrink-0 text-left cursor-pointer"
+        title="Open ticket"
+      >
+        {issue.key}
+      </button>
 
       {/* Title — click to edit inline (same UX as List) */}
       {editingTitle ? (

@@ -8,7 +8,7 @@ import { CommentSection, ImageLightbox } from '@/components/issues/CommentSectio
 import { RichTextEditor, renderDescriptionHTML, parseDescription } from '@/components/issues/RichTextEditor'
 import { PriorityIcon, priorityLabel, ALL_PRIORITIES } from '@/components/issues/PriorityIcon'
 import { useProjectSettings, formatSettingLabel } from '@/contexts/ProjectSettingsContext'
-import { formatLocalDate } from '@/lib/utils/dates'
+import { formatLocalDate, formatRelativeOrDate, formatDateTime } from '@/lib/utils/dates'
 import { useToast } from '@/providers/ToastProvider'
 import { updateIssueAction, setIssueLabelsAction } from '@/app/(dashboard)/project/[projectId]/actions'
 import { uploadCommentImageAction } from '@/app/(dashboard)/project/[projectId]/comment-actions'
@@ -181,8 +181,8 @@ export function IssueDetail({
 
   const [resolvedAt, setResolvedAt] = useState<string | null>(issue.resolved_at ?? null)
 
-  const createdAt = formatLocalDate(issue.created_at)
-  const updatedAt = formatLocalDate(issue.updated_at)
+  const createdAt = formatRelativeOrDate(issue.created_at)
+  const updatedAt = formatRelativeOrDate(issue.updated_at)
 
   // Broadcast a patch to other tabs of the same browser via BroadcastChannel
   function broadcastPatch(patch: object) {
@@ -672,8 +672,8 @@ export function IssueDetail({
               const color = projectStatuses.find(s => s.name === status)?.color ?? '#6b7280'
               return (
                 <div
-                  style={{ backgroundColor: color + '22', color, borderColor: color + '66' }}
-                  className="flex items-center justify-between text-sm font-semibold px-3 py-2 rounded-lg border"
+                  style={{ backgroundColor: color, color: '#000' }}
+                  className="flex items-center justify-between text-sm font-semibold px-3 py-2 rounded-lg"
                 >
                   <span>{formatSettingLabel(status)}</span>
                   <ChevronDown size={14} className="opacity-60 shrink-0" />
@@ -843,12 +843,14 @@ export function IssueDetail({
           </div>
         </div>
 
-        {/* Timestamps */}
+        {/* Timestamps — relative time, tooltip shows exact datetime */}
         <div className="space-y-1.5 pt-1">
-          <span className="flex items-center gap-1 text-xs text-gray-400"><Clock size={11} />Created {createdAt}</span>
-          <span className="flex items-center gap-1 text-xs text-gray-400"><Clock size={11} />Updated {updatedAt}</span>
+          <span title={formatDateTime(issue.created_at)} className="flex items-center gap-1 text-xs text-gray-400"><Clock size={11} />Created {createdAt}</span>
+          {issue.updated_at !== issue.created_at && (
+            <span title={formatDateTime(issue.updated_at)} className="flex items-center gap-1 text-xs text-gray-400"><Clock size={11} />Updated {updatedAt}</span>
+          )}
           {resolvedAt && (
-            <span className="flex items-center gap-1 text-xs text-gray-400"><Clock size={11} />Resolved {formatLocalDate(resolvedAt)}</span>
+            <span title={formatDateTime(resolvedAt)} className="flex items-center gap-1 text-xs text-gray-400"><Clock size={11} />Resolved {formatRelativeOrDate(resolvedAt)}</span>
           )}
         </div>
       </div>
@@ -974,8 +976,8 @@ function InlineLabelPicker({
           selected.map((l) => (
             <span
               key={l.id}
-              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold"
-              style={{ backgroundColor: l.color + '22', color: l.color }}
+              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold border"
+              style={{ backgroundColor: 'transparent', color: '#000', borderColor: l.color }}
             >
               {l.name}
             </span>

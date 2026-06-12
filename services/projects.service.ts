@@ -232,9 +232,8 @@ export async function createProject(
 }
 
 /**
- * Actualiza nombre, clave y/o descripción de un proyecto.
- * Cambiar la clave NO renombra los tickets existentes (mantienen su prefijo
- * antiguo); los nuevos tickets usarán el nuevo prefijo.
+ * Actualiza nombre y/o descripción de un proyecto.
+ * La clave (key) no se puede cambiar una vez creado el proyecto.
  */
 export async function updateProject(
   supabase: Client,
@@ -245,7 +244,6 @@ export async function updateProject(
     .from('projects')
     .update({
       ...(update.name !== undefined && { name: update.name.trim() }),
-      ...(update.key !== undefined && { key: update.key.trim().toUpperCase() }),
       ...(update.description !== undefined && {
         description: update.description?.trim() || null,
       }),
@@ -255,9 +253,6 @@ export async function updateProject(
     .single()
 
   if (error) {
-    if (error.code === '23505') {
-      return { data: null, error: 'Esa clave ya está en uso por otro proyecto.' }
-    }
     return { data: null, error: 'Error al actualizar el proyecto.' }
   }
 

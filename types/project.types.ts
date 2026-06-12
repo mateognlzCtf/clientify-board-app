@@ -16,7 +16,6 @@ export interface ProjectCreate {
 
 export interface ProjectUpdate {
   name?: string
-  key?: string
   description?: string
 }
 

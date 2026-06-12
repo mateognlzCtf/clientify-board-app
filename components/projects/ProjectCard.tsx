@@ -70,7 +70,7 @@ export function ProjectCard({
                 'opacity-0 group-hover:opacity-100',
                 menuOpen && 'opacity-100'
               )}
-              aria-label="Acciones del proyecto"
+              aria-label="Project actions"
             >
               <MoreHorizontal size={16} />
             </button>
@@ -82,7 +82,7 @@ export function ProjectCard({
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   <Pencil size={14} />
-                  Editar
+                  Edit
                 </button>
               </div>
             )}
@@ -96,7 +96,7 @@ export function ProjectCard({
           {project.description}
         </p>
       ) : (
-        <p className="text-sm text-gray-300 italic flex-1">Sin descripción</p>
+        <p className="text-sm text-gray-300 italic flex-1">No description</p>
       )}
 
       {/* Footer: members + issue count */}
@@ -123,8 +123,8 @@ export function ProjectCard({
           <FolderKanban size={13} />
           <span>
             {project.open_issue_count === 0
-              ? 'Sin issues abiertas'
-              : `${project.open_issue_count} ${project.open_issue_count === 1 ? 'issue abierta' : 'issues abiertas'}`}
+              ? 'No open issues'
+              : `${project.open_issue_count} ${project.open_issue_count === 1 ? 'open issue' : 'open issues'}`}
           </span>
         </Link>
       </div>
@@ -160,7 +160,7 @@ function MemberAvatar({
 
   return (
     <div
-      title={profile?.full_name ?? 'Miembro'}
+      title={profile?.full_name ?? 'Member'}
       className="h-6 w-6 rounded-full ring-2 ring-white bg-blue-500 flex items-center justify-center"
     >
       <span className="text-[9px] font-bold text-white">{initials}</span>

@@ -230,7 +230,9 @@ export function IssuesClient({ projectId, currentUserId, canDelete, issues, init
       if (hasSearch && !i.title.toLowerCase().includes(q) && !i.key.toLowerCase().includes(q)) return false
       if (hasDefaults) {
         const okCreated = defaults.has('created') && i.created_at >= cutoff
-        const okUpdated = defaults.has('updated') && i.updated_at >= cutoff
+        // "Updated" requires a real edit after creation — at INSERT both
+        // timestamps are set to NOW(), so equal values mean no edit happened.
+        const okUpdated = defaults.has('updated') && i.updated_at >= cutoff && i.updated_at !== i.created_at
         const okResolved = defaults.has('resolved') && i.resolved_at !== null && i.resolved_at >= cutoff
         if (!okCreated && !okUpdated && !okResolved) return false
       }

@@ -1,5 +1,5 @@
 import { formatDistanceToNow, format, parseISO } from 'date-fns'
-import { es } from 'date-fns/locale'
+import { es, enUS } from 'date-fns/locale'
 
 /**
  * Relative time (e.g. "hace 3 minutos") — uses browser local time.
@@ -34,6 +34,25 @@ export function formatDateTime(dateString: string): string {
  */
 export function formatLocalDate(dateString: string): string {
   return format(new Date(dateString), 'dd MMM yyyy', { locale: es })
+}
+
+/**
+ * Jira-style relative time for ticket detail timestamps.
+ * < 1 min  → "just now"
+ * < 60 min → "X minutes ago"
+ * < 24 h   → "X hours ago"
+ * otherwise → "12 Jun 2026"
+ */
+export function formatRelativeOrDate(dateString: string): string {
+  const date = new Date(dateString)
+  const diffMs = Date.now() - date.getTime()
+  const diffMin = Math.floor(diffMs / 60000)
+  const diffHour = Math.floor(diffMs / 3600000)
+
+  if (diffMin < 1) return 'just now'
+  if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? '' : 's'} ago`
+  if (diffHour < 24) return `${diffHour} hour${diffHour === 1 ? '' : 's'} ago`
+  return format(date, 'dd MMM yyyy', { locale: enUS })
 }
 
 export function isOverdue(dueDateString: string, isCompleted = false): boolean {

@@ -36,6 +36,22 @@ export async function updateProjectType(
   id: string,
   updates: { name?: string; color?: string; position?: number },
 ): Promise<ServiceResult<ProjectIssueType>> {
+  // If the name is changing, capture the old value first so we can backfill
+  // issues that reference it by name (issues.type is plain text, no FK).
+  let oldName: string | null = null
+  let projectId: string | null = null
+  if (updates.name !== undefined) {
+    const { data: current } = await supabase
+      .from('project_issue_types')
+      .select('name, project_id')
+      .eq('id', id)
+      .single()
+    if (current) {
+      oldName = (current as { name: string }).name
+      projectId = (current as { project_id: string }).project_id
+    }
+  }
+
   const { data, error } = await supabase
     .from('project_issue_types')
     .update(updates)
@@ -43,6 +59,15 @@ export async function updateProjectType(
     .select()
     .single()
   if (error) return { data: null, error: 'Error updating type.' }
+
+  if (updates.name !== undefined && oldName && projectId && oldName !== updates.name) {
+    await supabase
+      .from('issues')
+      .update({ type: updates.name })
+      .eq('project_id', projectId)
+      .eq('type', oldName)
+  }
+
   return { data: data as ProjectIssueType, error: null }
 }
 

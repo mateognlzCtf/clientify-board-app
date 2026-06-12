@@ -38,6 +38,22 @@ export async function updateProjectStatus(
   id: string,
   updates: { name?: string; color?: string; position?: number; requires_pause_reason?: boolean; is_completed?: boolean },
 ): Promise<ServiceResult<ProjectStatus>> {
+  // If the name is changing, capture the old value first so we can backfill
+  // issues that reference it by name (issues.status is plain text, no FK).
+  let oldName: string | null = null
+  let projectId: string | null = null
+  if (updates.name !== undefined) {
+    const { data: current } = await supabase
+      .from('project_statuses')
+      .select('name, project_id')
+      .eq('id', id)
+      .single()
+    if (current) {
+      oldName = (current as { name: string }).name
+      projectId = (current as { project_id: string }).project_id
+    }
+  }
+
   const { data, error } = await supabase
     .from('project_statuses')
     .update(updates)
@@ -45,6 +61,15 @@ export async function updateProjectStatus(
     .select()
     .single()
   if (error) return { data: null, error: 'Error updating status.' }
+
+  if (updates.name !== undefined && oldName && projectId && oldName !== updates.name) {
+    await supabase
+      .from('issues')
+      .update({ status: updates.name })
+      .eq('project_id', projectId)
+      .eq('status', oldName)
+  }
+
   return { data: data as ProjectStatus, error: null }
 }
 

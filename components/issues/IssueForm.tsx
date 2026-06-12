@@ -336,8 +336,8 @@ function LabelPicker({
           selected.map((l) => (
             <span
               key={l.id}
-              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[11px] font-semibold"
-              style={{ backgroundColor: l.color + '22', color: l.color }}
+              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[11px] font-semibold border"
+              style={{ backgroundColor: 'transparent', color: '#000', borderColor: l.color }}
             >
               {l.name}
             </span>

@@ -53,7 +53,7 @@ export async function updateProjectAction(
   const user = await getAuthenticatedUser()
   const supabase = createAdminClient()
 
-  // Verificar que el usuario es owner antes de actualizar
+  // Owners y admins pueden editar el proyecto.
   const { data: membership, error: memberError } = await supabase
     .from('project_members')
     .select('role')
@@ -61,7 +61,7 @@ export async function updateProjectAction(
     .eq('user_id', user.id)
     .single()
 
-  if (memberError || !membership || membership.role !== 'owner') {
+  if (memberError || !membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
     return { data: null, error: 'No tienes permiso para editar este proyecto.' }
   }
 
